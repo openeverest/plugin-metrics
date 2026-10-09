@@ -1,0 +1,35 @@
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: {{ include "plugin-metrics.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "plugin-metrics.labels" . | nindent 4 }}
+---
+# Cluster-wide because database namespaces are created dynamically. Read-only;
+# the backend only looks up monitors of instances the caller can read via the Everest API.
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: {{ include "plugin-metrics.fullname" . }}
+  labels:
+    {{- include "plugin-metrics.labels" . | nindent 4 }}
+rules:
+  - apiGroups: ["monitoring.coreos.com"]
+    resources: ["podmonitors"]
+    verbs: ["list"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: {{ include "plugin-metrics.fullname" . }}
+  labels:
+    {{- include "plugin-metrics.labels" . | nindent 4 }}
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: {{ include "plugin-metrics.fullname" . }}
+subjects:
+  - kind: ServiceAccount
+    name: {{ include "plugin-metrics.fullname" . }}
+    namespace: {{ .Release.Namespace }}
