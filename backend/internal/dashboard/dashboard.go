@@ -13,7 +13,7 @@ import (
 var builtIn []byte
 
 // Units the frontend knows how to format.
-var units = map[string]bool{"": true, "cores": true, "bytes": true, "ops": true, "ms": true}
+var units = map[string]bool{"": true, "cores": true, "bytes": true, "Bps": true, "ops": true, "ms": true}
 
 // Panel is one chart. Queries are keyed by source type.
 type Panel struct {

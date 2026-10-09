@@ -1,5 +1,5 @@
 import type { PluginApi } from '@openeverest/plugin-sdk';
-import { Dashboard, PanelData, TimeRange } from 'types/metrics.types';
+import { Dashboard, Exploration, MetricCatalog, MetricInfo, PanelData, TimeRange } from 'types/metrics.types';
 
 type PluginFetch = PluginApi['fetch'];
 
@@ -42,6 +42,34 @@ export const getPanelData = async (
   const response = await pluginFetch(
     `/api/panels/${encodeURIComponent(panelId)}?${params}`
   );
+  if (!response.ok) {
+    throw await errorFromResponse(response);
+  }
+  return response.json();
+};
+
+export const getMetricCatalog = async (
+  pluginFetch: PluginFetch,
+  target: InstanceTarget
+): Promise<MetricCatalog> => {
+  const response = await pluginFetch(`/api/metrics?${instanceParams(target)}`);
+  if (!response.ok) {
+    throw await errorFromResponse(response);
+  }
+  return response.json();
+};
+
+export const exploreMetric = async (
+  pluginFetch: PluginFetch,
+  target: InstanceTarget,
+  metric: MetricInfo,
+  range: TimeRange
+): Promise<Exploration> => {
+  const params = instanceParams(target);
+  params.set('metric', metric.name);
+  params.set('type', metric.type);
+  params.set('range', range);
+  const response = await pluginFetch(`/api/explore?${params}`);
   if (!response.ok) {
     throw await errorFromResponse(response);
   }

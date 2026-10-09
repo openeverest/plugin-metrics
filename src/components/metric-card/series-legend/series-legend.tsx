@@ -1,6 +1,6 @@
 import { Box, Stack, Typography } from '@mui/material';
 import { MetricUnit } from 'types/metrics.types';
-import { ChartSeries, formatValue } from '../metric-panel.utils';
+import { ChartSeries, formatValue } from '../metric-card.utils';
 
 interface SeriesLegendProps {
   series: ChartSeries[];

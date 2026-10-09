@@ -1,6 +1,6 @@
 import { MetricSeries, MetricUnit } from 'types/metrics.types';
-import { BYTE_UNITS, SERIES_COLORS, Y_TICK_COUNT } from './metric-panel.constants';
-import { Messages } from './metric-panel.messages';
+import { BYTE_UNITS, SERIES_COLORS, Y_TICK_COUNT } from './metric-card.constants';
+import { Messages } from './metric-card.messages';
 
 export interface ChartSeries {
   label: string;
@@ -92,6 +92,8 @@ export const formatValue = (value: number, unit: MetricUnit): string => {
   switch (unit) {
     case 'bytes':
       return formatBytes(value);
+    case 'Bps':
+      return Messages.perSecond(formatBytes(value));
     case 'ms':
       return Math.abs(value) >= 1000
         ? Messages.seconds(formatNumber(value / 1000))

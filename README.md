@@ -4,7 +4,9 @@ OpenEverest plugin that charts database instance metrics right on the instance
 page, so users don't have to switch to Grafana for a quick look.
 
 It adds a **Metrics** tab with a small dashboard (CPU, memory and
-engine-specific panels) and a *Last hour / Last 24 hours* switch.
+engine-specific panels) and a *Last hour / Last 24 hours* switch. A search box
+adds any other metric the instance exposes as an extra chart for the session —
+nothing is saved; for deeper digging use Grafana, PMM or similar.
 
 ## How it works
 
@@ -102,6 +104,11 @@ Served under `/v1/clusters/{cluster}/plugins/plugin-metrics` by everest-server.
 |---|---|
 | `GET /api/dashboard?namespace=&instance=` | The active source and its status, and the panels it can fill |
 | `GET /api/panels/{id}?namespace=&instance=&range=1h\|24h` | The panel's series |
+| `GET /api/metrics?namespace=&instance=` | The instance's raw metrics with type and description (explorer sources only) |
+| `GET /api/explore?namespace=&instance=&metric=&type=&range=` | One raw metric charted by type: counters as a per-second rate, histograms as p99, summaries as the average, gauges as is |
+
+Explored queries are built on the backend from a validated metric name and are
+scoped like dashboard queries, so they cannot read other instances' metrics.
 
 ## Development
 

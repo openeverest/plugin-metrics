@@ -37,8 +37,9 @@ const (
 
 const (
 	// Shorter windows than four scrape intervals make rate() return gaps.
-	minRateInterval = 2 * time.Minute
-	requestTimeout  = 15 * time.Second
+	minRateInterval  = 2 * time.Minute
+	requestTimeout   = 15 * time.Second
+	maxResponseBytes = 32 << 20
 )
 
 var podMonitorGVR = schema.GroupVersionResource{Group: "monitoring.coreos.com", Version: "v1", Resource: "podmonitors"}
@@ -102,16 +103,41 @@ func (s *Source) QueryRange(ctx context.Context, target source.Target, query str
 		"end":   {formatTime(window.End)},
 		"step":  {strconv.FormatFloat(window.Step.Seconds(), 'f', -1, 64)},
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, s.baseURL+"/api/v1/query_range?"+params.Encode(), nil)
-	if err != nil {
+	var matrix matrixData
+	if err := s.getJSON(ctx, "/api/v1/query_range", params, &matrix); err != nil {
 		return nil, err
+	}
+	return decodeMatrix(matrix)
+}
+
+// getJSON calls a Prometheus API endpoint and decodes its data field.
+func (s *Source) getJSON(ctx context.Context, path string, params url.Values, data any) error {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, s.baseURL+path+"?"+params.Encode(), nil)
+	if err != nil {
+		return err
 	}
 	resp, err := s.http.Do(req)
 	if err != nil {
-		return nil, fmt.Errorf("prometheus unreachable: %w", err)
+		return fmt.Errorf("prometheus unreachable: %w", err)
 	}
 	defer resp.Body.Close()
-	return decodeMatrix(resp)
+
+	body, err := io.ReadAll(io.LimitReader(resp.Body, maxResponseBytes))
+	if err != nil {
+		return fmt.Errorf("read prometheus response: %w", err)
+	}
+	var parsed struct {
+		Status string          `json:"status"`
+		Error  string          `json:"error"`
+		Data   json.RawMessage `json:"data"`
+	}
+	if err := json.Unmarshal(body, &parsed); err != nil {
+		return fmt.Errorf("prometheus returned %d with an unreadable body", resp.StatusCode)
+	}
+	if parsed.Status != "success" {
+		return fmt.Errorf("prometheus query failed: %s", parsed.Error)
+	}
+	return json.Unmarshal(parsed.Data, data)
 }
 
 // jobs returns the scrape jobs of the instance's PodMonitors, which providers
@@ -139,53 +165,42 @@ func renderQuery(query, namespace string, jobs []string, step time.Duration) (st
 	if !strings.Contains(query, selectorPlaceholder) {
 		return "", fmt.Errorf("query must be scoped with %s", selectorPlaceholder)
 	}
+	rate := max(step, minRateInterval)
+	return strings.NewReplacer(
+		selectorPlaceholder, scopeSelector(namespace, jobs),
+		ratePlaceholder, strconv.Itoa(int(rate.Seconds()))+"s",
+	).Replace(query), nil
+}
+
+// scopeSelector matches only the instance's namespace and scrape jobs.
+func scopeSelector(namespace string, jobs []string) string {
 	quoted := make([]string, len(jobs))
 	for i, job := range jobs {
 		quoted[i] = regexp.QuoteMeta(job)
 	}
 	// PromQL string literals use Go escaping, so %q is safe for any value.
-	selector := fmt.Sprintf("namespace=%q,job=~%q", namespace, strings.Join(quoted, "|"))
-	rate := max(step, minRateInterval)
-	return strings.NewReplacer(
-		selectorPlaceholder, selector,
-		ratePlaceholder, strconv.Itoa(int(rate.Seconds()))+"s",
-	).Replace(query), nil
+	return fmt.Sprintf("namespace=%q,job=~%q", namespace, strings.Join(quoted, "|"))
 }
 
 func formatTime(t time.Time) string {
 	return strconv.FormatInt(t.Unix(), 10)
 }
 
-type apiResponse struct {
-	Status string `json:"status"`
-	Error  string `json:"error"`
-	Data   struct {
-		ResultType string `json:"resultType"`
-		Result     []struct {
-			Metric map[string]string `json:"metric"`
-			Values [][2]any          `json:"values"`
-		} `json:"result"`
-	} `json:"data"`
+type matrixData struct {
+	ResultType string `json:"resultType"`
+	Result     []struct {
+		Metric map[string]string `json:"metric"`
+		Values [][2]any          `json:"values"`
+	} `json:"result"`
 }
 
-func decodeMatrix(resp *http.Response) ([]source.Series, error) {
-	body, err := io.ReadAll(io.LimitReader(resp.Body, 32<<20))
-	if err != nil {
-		return nil, fmt.Errorf("read prometheus response: %w", err)
-	}
-	var parsed apiResponse
-	if err := json.Unmarshal(body, &parsed); err != nil {
-		return nil, fmt.Errorf("prometheus returned %d with an unreadable body", resp.StatusCode)
-	}
-	if parsed.Status != "success" {
-		return nil, fmt.Errorf("prometheus query failed: %s", parsed.Error)
-	}
-	if parsed.Data.ResultType != "matrix" {
-		return nil, fmt.Errorf("prometheus returned %q, expected a matrix", parsed.Data.ResultType)
+func decodeMatrix(matrix matrixData) ([]source.Series, error) {
+	if matrix.ResultType != "matrix" {
+		return nil, fmt.Errorf("prometheus returned %q, expected a matrix", matrix.ResultType)
 	}
 
-	series := make([]source.Series, 0, len(parsed.Data.Result))
-	for _, result := range parsed.Data.Result {
+	series := make([]source.Series, 0, len(matrix.Result))
+	for _, result := range matrix.Result {
 		points := make([]source.Point, 0, len(result.Values))
 		for _, sample := range result.Values {
 			point, err := toPoint(sample)

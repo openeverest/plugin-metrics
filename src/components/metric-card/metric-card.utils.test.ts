@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { byteTicks, formatValue, toChartData } from './metric-panel.utils';
+import { byteTicks, formatValue, toChartData } from './metric-card.utils';
 
 describe('toChartData', () => {
   it('aligns series on shared timestamps and keeps gaps as null', () => {
@@ -40,6 +40,7 @@ describe('formatValue', () => {
   it.each([
     [1536, 'bytes', '1.5 KiB'],
     [3 * 1024 ** 3, 'bytes', '3 GiB'],
+    [2048, 'Bps', '2 KiB/s'],
     [12.345, 'ms', '12.35 ms'],
     [2500, 'ms', '2.5 s'],
     [1.9, 'ops', '1.9/s'],

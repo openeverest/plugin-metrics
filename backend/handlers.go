@@ -31,6 +31,8 @@ type instanceRef struct {
 
 type sourceInfo struct {
 	Type string `json:"type"`
+	// Explorable means users can chart any of the instance's raw metrics.
+	Explorable bool `json:"explorable"`
 	source.Status
 }
 
@@ -47,6 +49,10 @@ type dashboardResponse struct {
 
 type panelDataResponse struct {
 	Series []source.Series `json:"series"`
+}
+
+type metricsResponse struct {
+	Metrics []source.Metric `json:"metrics"`
 }
 
 func badRequest(message string) error {
@@ -138,6 +144,7 @@ func (s *server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 	}
 
 	response := dashboardResponse{Source: sourceInfo{Type: src.Type(), Status: status}, Panels: []panelInfo{}}
+	_, response.Source.Explorable = src.(source.Explorer)
 	if d, ok := s.catalog.ForProvider(in.Spec.ProviderRef.Name); ok && status.Enabled {
 		for _, panel := range d.Panels {
 			if _, ok := panel.Queries[src.Type()]; ok {
@@ -185,6 +192,75 @@ func (s *server) handlePanel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, panelDataResponse{Series: series})
+}
+
+// explorer returns the source monitoring the target if it can explore raw metrics.
+func (s *server) explorer(r *http.Request) (source.Explorer, source.Target, error) {
+	target, _, err := s.authorize(r)
+	if err != nil {
+		return nil, target, err
+	}
+	src, status, err := s.activeSource(r.Context(), target)
+	if err != nil {
+		return nil, target, err
+	}
+	explorer, ok := src.(source.Explorer)
+	if !status.Enabled || !ok {
+		return nil, target, &statusError{status: http.StatusConflict, message: "no monitoring source can explore this instance's metrics"}
+	}
+	return explorer, target, nil
+}
+
+// GET /api/metrics?k8sCluster=&namespace=&instance=
+func (s *server) handleMetrics(w http.ResponseWriter, r *http.Request) {
+	explorer, target, err := s.explorer(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	metrics, err := explorer.ListMetrics(r.Context(), target)
+	if err != nil {
+		log.Printf("list metrics of %s/%s: %v", target.Namespace, target.Instance, err)
+		writeError(w, &statusError{status: http.StatusBadGateway, message: "listing metrics failed"})
+		return
+	}
+	writeJSON(w, metricsResponse{Metrics: metrics})
+}
+
+// GET /api/explore?k8sCluster=&namespace=&instance=&metric=&type=&range=
+func (s *server) handleExplore(w http.ResponseWriter, r *http.Request) {
+	q := r.URL.Query()
+	window, err := parseWindow(q.Get("range"), time.Now())
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	metric := source.Metric{Name: q.Get("metric"), Type: q.Get("type")}
+	if !validMetric(metric) {
+		writeError(w, badRequest("invalid metric or type"))
+		return
+	}
+	explorer, target, err := s.explorer(r)
+	if err != nil {
+		writeError(w, err)
+		return
+	}
+	exploration, err := explorer.ExploreMetric(r.Context(), target, metric, window)
+	if err != nil {
+		log.Printf("explore %s of %s/%s: %v", metric.Name, target.Namespace, target.Instance, err)
+		writeError(w, &statusError{status: http.StatusBadGateway, message: "metrics query failed"})
+		return
+	}
+	writeJSON(w, exploration)
+}
+
+var metricTypes = map[string]bool{
+	source.MetricCounter: true, source.MetricGauge: true, source.MetricHistogram: true,
+	source.MetricSummary: true, source.MetricUnknown: true,
+}
+
+func validMetric(metric source.Metric) bool {
+	return metricTypes[metric.Type] && source.ValidMetricName(metric.Name)
 }
 
 func writeJSON(w http.ResponseWriter, v any) {

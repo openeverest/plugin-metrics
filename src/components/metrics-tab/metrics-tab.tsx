@@ -1,9 +1,10 @@
 import { useMemo, useState } from 'react';
 import { Alert, Box, CircularProgress, Stack, Tab, Tabs, Typography } from '@mui/material';
+import { MetricExplorer } from 'components/metric-explorer/metric-explorer';
 import { MetricPanel } from 'components/metric-panel/metric-panel';
 import { useDashboard } from 'hooks/useDashboard';
 import { TimeRange } from 'types/metrics.types';
-import { DEFAULT_TIME_RANGE, TIME_RANGES } from './metrics-tab.constants';
+import { DEFAULT_TIME_RANGE, PANEL_GRID_SX, TIME_RANGES } from './metrics-tab.constants';
 import { Messages } from './metrics-tab.messages';
 
 interface MetricsTabProps {
@@ -39,7 +40,7 @@ export const MetricsTab = ({ namespace, instanceName }: MetricsTabProps) => {
       </Alert>
     );
   }
-  if (panels.length === 0) {
+  if (panels.length === 0 && !source.explorable) {
     return (
       <Alert severity="info" sx={{ mt: 2 }}>
         {Messages.noDashboard}
@@ -59,11 +60,14 @@ export const MetricsTab = ({ namespace, instanceName }: MetricsTabProps) => {
           {Messages.source(source.type)}
         </Typography>
       </Stack>
-      <Box sx={{ display: 'grid', gap: 2, gridTemplateColumns: { xs: '1fr', lg: '1fr 1fr' } }}>
-        {panels.map((panel) => (
-          <MetricPanel key={panel.id} target={target} panel={panel} range={range} />
-        ))}
-      </Box>
+      {source.explorable && <MetricExplorer target={target} range={range} />}
+      {panels.length > 0 && (
+        <Box sx={PANEL_GRID_SX}>
+          {panels.map((panel) => (
+            <MetricPanel key={panel.id} target={target} panel={panel} range={range} />
+          ))}
+        </Box>
+      )}
     </Stack>
   );
 };

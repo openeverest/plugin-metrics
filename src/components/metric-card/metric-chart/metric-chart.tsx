@@ -3,8 +3,8 @@ import { useTheme } from '@mui/material';
 import { chartsGridClasses } from '@mui/x-charts/ChartsGrid';
 import { LineChart, lineClasses } from '@mui/x-charts/LineChart';
 import { MetricUnit } from 'types/metrics.types';
-import { AREA_OPACITY, CHART_HEIGHT, MAX_SERIES_FOR_STRONG_FILL, Y_TICK_COUNT } from '../metric-panel.constants';
-import { byteTicks, ChartData, formatTime, formatValue, seriesMax } from '../metric-panel.utils';
+import { AREA_OPACITY, CHART_HEIGHT, MAX_SERIES_FOR_STRONG_FILL, Y_TICK_COUNT } from '../metric-card.constants';
+import { byteTicks, ChartData, formatTime, formatValue, seriesMax } from '../metric-card.utils';
 
 interface MetricChartProps {
   chart: ChartData;

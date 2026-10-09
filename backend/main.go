@@ -77,6 +77,8 @@ func newMux(s *server) *http.ServeMux {
 	mux.HandleFunc("GET /healthz", handleHealthz)
 	mux.HandleFunc("GET /api/dashboard", s.handleDashboard)
 	mux.HandleFunc("GET /api/panels/{panel}", s.handlePanel)
+	mux.HandleFunc("GET /api/metrics", s.handleMetrics)
+	mux.HandleFunc("GET /api/explore", s.handleExplore)
 	return mux
 }
 

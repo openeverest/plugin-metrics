@@ -32,6 +32,20 @@ func (f *fakeSource) QueryRange(_ context.Context, _ source.Target, query string
 	return []source.Series{{Name: "proxy", Points: []source.Point{{T: 1}}}}, nil
 }
 
+type fakeExplorer struct {
+	fakeSource
+	explored []source.Metric
+}
+
+func (f *fakeExplorer) ListMetrics(context.Context, source.Target) ([]source.Metric, error) {
+	return []source.Metric{{Name: "process_open_fds", Type: source.MetricGauge}}, nil
+}
+
+func (f *fakeExplorer) ExploreMetric(_ context.Context, _ source.Target, metric source.Metric, _ source.Window) (source.Exploration, error) {
+	f.explored = append(f.explored, metric)
+	return source.Exploration{Unit: "bytes"}, nil
+}
+
 const testCatalog = `
 dashboards:
   milvus:
@@ -114,6 +128,44 @@ func TestPanelRequiresAccessToTheInstance(t *testing.T) {
 
 	assert.Equal(t, http.StatusForbidden, get(t, srv.URL+"/api/panels/cpu"+instanceQuery+"&range=1h", "denied", nil))
 	assert.Empty(t, prom.queries, "no query may run for a user who cannot read the instance")
+}
+
+func TestExploreChartsAPickedMetric(t *testing.T) {
+	prom := &fakeExplorer{fakeSource: fakeSource{typ: "prometheus", status: source.Status{Enabled: true}}}
+	srv := newTestServer(t, prom)
+
+	var dashboard dashboardResponse
+	require.Equal(t, http.StatusOK, get(t, srv.URL+"/api/dashboard"+instanceQuery, "allowed", &dashboard))
+	assert.True(t, dashboard.Source.Explorable)
+
+	var metrics metricsResponse
+	require.Equal(t, http.StatusOK, get(t, srv.URL+"/api/metrics"+instanceQuery, "allowed", &metrics))
+	assert.Equal(t, "process_open_fds", metrics.Metrics[0].Name)
+
+	var exploration source.Exploration
+	require.Equal(t, http.StatusOK, get(t, srv.URL+"/api/explore"+instanceQuery+"&metric=process_open_fds&type=gauge&range=24h", "allowed", &exploration))
+	assert.Equal(t, "bytes", exploration.Unit)
+	assert.Equal(t, []source.Metric{{Name: "process_open_fds", Type: "gauge"}}, prom.explored)
+}
+
+func TestExploreRejectsInvalidMetricsAndUsers(t *testing.T) {
+	prom := &fakeExplorer{fakeSource: fakeSource{typ: "prometheus", status: source.Status{Enabled: true}}}
+	srv := newTestServer(t, prom)
+	explore := srv.URL + "/api/explore" + instanceQuery + "&range=1h"
+
+	assert.Equal(t, http.StatusBadRequest, get(t, explore+`&type=gauge&metric=x%7Bjob%3D%22other%22%7D`, "allowed", nil))
+	assert.Equal(t, http.StatusBadRequest, get(t, explore+"&type=rate&metric=x", "allowed", nil))
+	assert.Equal(t, http.StatusForbidden, get(t, explore+"&type=gauge&metric=x", "denied", nil))
+	assert.Empty(t, prom.explored)
+}
+
+func TestExploreNeedsAnExplorableSource(t *testing.T) {
+	srv := newTestServer(t, &fakeSource{typ: "pmm", status: source.Status{Enabled: true}})
+
+	var dashboard dashboardResponse
+	require.Equal(t, http.StatusOK, get(t, srv.URL+"/api/dashboard"+instanceQuery, "allowed", &dashboard))
+	assert.False(t, dashboard.Source.Explorable)
+	assert.Equal(t, http.StatusConflict, get(t, srv.URL+"/api/metrics"+instanceQuery, "allowed", nil))
 }
 
 func TestParseWindowAlignsToStep(t *testing.T) {

@@ -5,6 +5,7 @@ package source
 
 import (
 	"context"
+	"regexp"
 	"time"
 )
 
@@ -53,4 +54,41 @@ type Source interface {
 	Status(ctx context.Context, target Target) (Status, error)
 	// QueryRange runs a dashboard query scoped to the target.
 	QueryRange(ctx context.Context, target Target, query string, window Window) ([]Series, error)
+}
+
+// Metric types a source reports; they decide how a metric is charted.
+const (
+	MetricCounter   = "counter"
+	MetricGauge     = "gauge"
+	MetricHistogram = "histogram"
+	MetricSummary   = "summary"
+	MetricUnknown   = "unknown"
+)
+
+// Metric is one of the target's raw metrics a user can chart.
+type Metric struct {
+	Name string `json:"name"`
+	Type string `json:"type"`
+	Help string `json:"help,omitempty"`
+}
+
+var metricNamePattern = regexp.MustCompile(`^[a-zA-Z_:][a-zA-Z0-9_:]*$`)
+
+// ValidMetricName reports a Prometheus-style metric name, which cannot carry
+// query syntax into the query it is placed in.
+func ValidMetricName(name string) bool {
+	return metricNamePattern.MatchString(name)
+}
+
+// Exploration is a raw metric charted the way its type suggests.
+type Exploration struct {
+	Unit   string   `json:"unit"`
+	Series []Series `json:"series"`
+}
+
+// Explorer is implemented by sources that can list a target's raw metrics and
+// chart any of them outside the dashboard.
+type Explorer interface {
+	ListMetrics(ctx context.Context, target Target) ([]Metric, error)
+	ExploreMetric(ctx context.Context, target Target, metric Metric, window Window) (Exploration, error)
 }
