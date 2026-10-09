@@ -112,6 +112,29 @@ make build-frontend   # dist/main.js
 make docker-build IMG=<registry>/plugin-metrics:dev
 ```
 
+### Local environment (Tilt)
+
+```bash
+cp dev/.env.example dev/.env   # set OPENEVEREST_VERSION while v2 is in pre-release
+make dev-up                    # k3d cluster + tilt up
+```
+
+[dev/Tiltfile](dev/Tiltfile) installs the released OpenEverest core,
+kube-prometheus-stack, the Milvus provider and a small standalone instance
+with Prometheus monitoring on ([dev/demo-instance.yaml](dev/demo-instance.yaml)),
+then rebuilds and redeploys the plugin on every change. Open the UI at
+http://localhost:8080 (admin / `UI_ADMIN_PASSWORD`) and Prometheus at
+http://localhost:9090. Each dependency can be turned off in `dev/.env` to
+reuse one you already run. `make dev-down` stops Tilt; `make dev-destroy`
+also deletes the cluster.
+
+### Releasing
+
+Push a `vX.Y.Z` (or `vX.Y.Z-<suffix>`) tag. The release workflow builds the
+bundle and a multi-arch image, pushes the image and the Helm chart to GHCR
+(`oci://ghcr.io/openeverest/charts/plugin-metrics`) and creates a GitHub
+release with notes.
+
 The frontend is an ES module loaded by the Everest UI and shares the host's
 React (see [vite.config.ts](vite.config.ts)). The backend embeds it and serves
 it at `/main.js`.
