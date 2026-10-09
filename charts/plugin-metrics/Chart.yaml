@@ -1,0 +1,6 @@
+apiVersion: v2
+name: plugin-metrics
+description: OpenEverest plugin that charts database instance metrics from Prometheus
+type: application
+version: 0.1.0
+appVersion: "0.1.0"

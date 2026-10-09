@@ -1,0 +1,33 @@
+# Built-in dashboards, keyed by provider name (Instance spec.providerRef.name).
+#
+# Each panel holds one query per monitoring source type. Prometheus queries
+# must use ${selector}, which the plugin expands to the instance's namespace
+# and scrape jobs, and may use ${rate} as the rate() window for the chosen time
+# range. Units: cores, bytes, ops (per second), ms, or empty for plain numbers.
+dashboards:
+  milvus:
+    panels:
+      - id: requests
+        title: Requests per second
+        unit: ops
+        queries:
+          prometheus: >-
+            sum by (function_name) (rate(milvus_proxy_req_count{${selector},status="total",function_name=~"Search|Query|Insert|Upsert|Delete"}[${rate}]))
+      - id: latency
+        title: Search and query latency (p99)
+        unit: ms
+        queries:
+          prometheus: >-
+            histogram_quantile(0.99, sum by (le, query_type) (rate(milvus_proxy_sq_latency_bucket{${selector}}[${rate}])))
+      - id: cpu
+        title: CPU usage by component
+        unit: cores
+        queries:
+          prometheus: >-
+            sum by (core_openeverest_io_component) (rate(process_cpu_seconds_total{${selector}}[${rate}]))
+      - id: memory
+        title: Memory usage by component
+        unit: bytes
+        queries:
+          prometheus: >-
+            sum by (core_openeverest_io_component) (process_resident_memory_bytes{${selector}})

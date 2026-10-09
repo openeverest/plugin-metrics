@@ -1,0 +1,27 @@
+# Smallest Milvus that produces metrics: standalone, Prometheus monitoring on.
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: milvus-demo
+  labels:
+    app.kubernetes.io/managed-by: everest
+---
+apiVersion: core.openeverest.io/v1alpha1
+kind: Instance
+metadata:
+  name: milvus-demo
+  namespace: milvus-demo
+spec:
+  providerRef:
+    name: milvus
+  topology:
+    type: standalone
+    parameters:
+      monitoring:
+        prometheus:
+          enabled: true
+          interval: 15s
+  components:
+    standalone:
+      type: milvus
+      replicas: 1
