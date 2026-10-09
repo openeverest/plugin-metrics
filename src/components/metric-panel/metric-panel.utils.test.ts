@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { formatValue, toChartData } from './metric-panel.utils';
+import { byteTicks, formatValue, toChartData } from './metric-panel.utils';
 
 describe('toChartData', () => {
   it('aligns series on shared timestamps and keeps gaps as null', () => {
@@ -12,14 +12,27 @@ describe('toChartData', () => {
     );
 
     expect(chart.timestamps.map((d) => d.getTime())).toEqual([1000, 2000, 3000]);
-    expect(chart.series).toEqual([
-      { label: 'proxy', data: [1, 2, null] },
-      { label: 'dataNode', data: [null, null, 3] },
+    expect(chart.series.map(({ label, data, latest }) => ({ label, data, latest }))).toEqual([
+      { label: 'proxy', data: [1, 2, null], latest: 2 },
+      { label: 'dataNode', data: [null, null, 3], latest: 3 },
     ]);
+    expect(chart.series[0].color).not.toBe(chart.series[1].color);
   });
 
   it('names an unlabelled series after the panel', () => {
     expect(toChartData([{ name: '', points: [] }], 'Latency').series[0].label).toBe('Latency');
+  });
+});
+
+describe('byteTicks', () => {
+  it('steps in round binary units', () => {
+    const mib = 1024 ** 2;
+    expect(byteTicks(540 * mib)).toEqual([0, 200 * mib, 400 * mib, 600 * mib]);
+    expect(byteTicks(3.2 * 1024 ** 3)).toEqual([0, 1, 2, 3, 4].map((g) => g * 1024 ** 3));
+  });
+
+  it('leaves an empty axis to the chart', () => {
+    expect(byteTicks(0)).toBeUndefined();
   });
 });
 
