@@ -17,9 +17,6 @@ import (
 	"strings"
 	"time"
 
-	apierrors "k8s.io/apimachinery/pkg/api/errors"
-	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
-	"k8s.io/apimachinery/pkg/runtime/schema"
 	"k8s.io/client-go/dynamic"
 
 	"github.com/openeverest/plugin-metrics/backend/internal/source"
@@ -41,8 +38,6 @@ const (
 	requestTimeout   = 15 * time.Second
 	maxResponseBytes = 32 << 20
 )
-
-var podMonitorGVR = schema.GroupVersionResource{Group: "monitoring.coreos.com", Version: "v1", Resource: "podmonitors"}
 
 var (
 	errNotMonitored    = errors.New("prometheus monitoring is not enabled for this instance")
@@ -140,30 +135,22 @@ func (s *Source) getJSON(ctx context.Context, path string, params url.Values, da
 	return json.Unmarshal(parsed.Data, data)
 }
 
-// jobs returns the scrape jobs of the instance's PodMonitors, which providers
-// label with the instance name and the everest manager.
-func (s *Source) jobs(ctx context.Context, target source.Target) ([]string, error) {
-	list, err := s.kube.Resource(podMonitorGVR).Namespace(target.Namespace).List(ctx, metav1.ListOptions{
-		LabelSelector: "app.kubernetes.io/managed-by=everest,app.kubernetes.io/instance=" + target.Instance,
-	})
-	if apierrors.IsNotFound(err) {
-		return nil, errOperatorMissing
+// ValidateQuery implements source.Source: without the selector a query would
+// read every instance's metrics.
+func (s *Source) ValidateQuery(query string) error {
+	return validateQuery(query)
+}
+
+func validateQuery(query string) error {
+	if !strings.Contains(query, selectorPlaceholder) {
+		return fmt.Errorf("query must be scoped with %s", selectorPlaceholder)
 	}
-	if err != nil {
-		return nil, fmt.Errorf("list PodMonitors: %w", err)
-	}
-	jobs := make([]string, 0, len(list.Items))
-	for _, item := range list.Items {
-		// The Prometheus Operator's default job label; providers do not set spec.jobLabel.
-		jobs = append(jobs, item.GetNamespace()+"/"+item.GetName())
-	}
-	slices.Sort(jobs)
-	return jobs, nil
+	return nil
 }
 
 func renderQuery(query, namespace string, jobs []string, step time.Duration) (string, error) {
-	if !strings.Contains(query, selectorPlaceholder) {
-		return "", fmt.Errorf("query must be scoped with %s", selectorPlaceholder)
+	if err := validateQuery(query); err != nil {
+		return "", err
 	}
 	rate := max(step, minRateInterval)
 	return strings.NewReplacer(

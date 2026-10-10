@@ -89,6 +89,21 @@ func envOrDefault(key, fallback string) string {
 	return fallback
 }
 
+// queryValidator lets each source check its own queries. Queries for sources
+// this deployment doesn't run are accepted, ready for when it does.
+func queryValidator(sources []source.Source) dashboard.QueryValidator {
+	byType := map[string]source.Source{}
+	for _, src := range sources {
+		byType[src.Type()] = src
+	}
+	return func(sourceType, query string) error {
+		if src, ok := byType[sourceType]; ok {
+			return src.ValidateQuery(query)
+		}
+		return nil
+	}
+}
+
 func main() {
 	cfg, err := kubeConfig()
 	if err != nil {
@@ -98,17 +113,22 @@ func main() {
 	if err != nil {
 		log.Fatalf("kubernetes client: %v", err)
 	}
-	catalog, err := dashboard.BuiltIn()
+	builtIn, err := dashboard.BuiltIn()
 	if err != nil {
 		log.Fatalf("dashboards: %v", err)
 	}
 
 	prometheusURL := envOrDefault("PROMETHEUS_URL", "http://kube-prometheus-stack-prometheus.monitoring.svc:9090")
+	// Tried in order; the first one monitoring an instance serves it.
+	sources := []source.Source{prometheus.New(prometheusURL, kube)}
+	dashboards, err := dashboard.NewLoader(builtIn, os.Getenv("DASHBOARDS_FILE"), queryValidator(sources))
+	if err != nil {
+		log.Fatalf("dashboards: %v", err)
+	}
 	s := &server{
-		everest: newEverestClient(everestAPIURL()),
-		catalog: catalog,
-		// Tried in order; the first one monitoring an instance serves it.
-		sources: []source.Source{prometheus.New(prometheusURL, kube)},
+		everest:    newEverestClient(everestAPIURL()),
+		dashboards: dashboards,
+		sources:    sources,
 	}
 	srv := &http.Server{
 		Addr:              ":" + envOrDefault("PORT", "8080"),

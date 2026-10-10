@@ -16,7 +16,11 @@ metadata:
     {{- include "plugin-metrics.labels" . | nindent 4 }}
 rules:
   - apiGroups: ["monitoring.coreos.com"]
-    resources: ["podmonitors"]
+    resources: ["podmonitors", "servicemonitors"]
+    verbs: ["list"]
+  # A ServiceMonitor's scrape jobs are named after the Services it selects.
+  - apiGroups: [""]
+    resources: ["services"]
     verbs: ["list"]
 ---
 apiVersion: rbac.authorization.k8s.io/v1

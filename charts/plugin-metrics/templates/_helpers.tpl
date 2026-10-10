@@ -49,3 +49,14 @@ Selector labels
 app.kubernetes.io/name: {{ include "plugin-metrics.name" . }}
 app.kubernetes.io/instance: {{ .Release.Name }}
 {{- end }}
+
+{{/*
+ConfigMap holding dashboard overrides, empty when there are none.
+*/}}
+{{- define "plugin-metrics.dashboardsConfigMap" -}}
+{{- if .Values.dashboards.existingConfigMap -}}
+{{- .Values.dashboards.existingConfigMap -}}
+{{- else if .Values.dashboards.overrides -}}
+{{- include "plugin-metrics.fullname" . }}-dashboards
+{{- end -}}
+{{- end }}

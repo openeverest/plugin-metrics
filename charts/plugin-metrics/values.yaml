@@ -27,11 +27,37 @@ plugin:
       # Providers with a built-in dashboard; others would only see an empty tab.
       providers:
         - milvus
+        - valkey
+        - mariadb
+        - mssql
+        - provider-cassandra
+        - provider-cloudnative-pg
+        - tidb
 
 prometheus:
   # In-cluster Prometheus HTTP API. The default matches kube-prometheus-stack
   # installed as release "kube-prometheus-stack" in namespace "monitoring".
   url: "http://kube-prometheus-stack-prometheus.monitoring.svc:9090"
+
+# Dashboards that add to or replace the built-in ones, keyed by provider name
+# (Instance spec.providerRef.name). A provider's dashboard replaces its built-in
+# one as a whole; `{panels: []}` hides it. Same format as the built-in
+# backend/internal/dashboard/dashboards.yaml. Edits to the ConfigMap apply
+# without a restart. Add new providers to plugin.extensionPoints[].providers.
+dashboards:
+  overrides: {}
+  # valkey:
+  #   panels:
+  #     - id: commands
+  #       title: Commands per second
+  #       unit: ops
+  #       queries:
+  #         prometheus: >-
+  #           sum by (valkey_io_shard_index) (rate(redis_commands_processed_total{${selector}}[${rate}]))
+
+  # A ConfigMap with key dashboards.yaml managed outside this chart (e.g. GitOps).
+  # Takes precedence over overrides; the plugin uses the built-ins until it exists.
+  existingConfigMap: ""
 
 # Optional override for the Everest API URL. When empty the backend discovers
 # the everest Service via Kubernetes-injected env vars (same namespace), then

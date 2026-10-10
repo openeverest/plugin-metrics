@@ -41,7 +41,21 @@ type Source interface {
 
 | Source | Monitored when | Scoping |
 |---|---|---|
-| `prometheus` | The provider created a PodMonitor for the instance (labels `app.kubernetes.io/managed-by=everest`, `app.kubernetes.io/instance=<name>`) | `${selector}` expands to the instance's namespace and scrape jobs |
+| `prometheus` | A PodMonitor or ServiceMonitor for the instance exists (see below) | `${selector}` expands to the instance's namespace and scrape jobs |
+
+The Prometheus source finds an instance's monitors in its namespace by either
+label set:
+
+- `app.kubernetes.io/managed-by=everest` + `app.kubernetes.io/instance=<name>`
+  for monitors the provider creates itself;
+- `core.openeverest.io/instance=<name>` for monitors a database operator
+  creates (the operator owns `managed-by`), which the provider labels through
+  the operator's API, e.g. MariaDB `spec.inheritMetadata` or k8ssandra
+  `telemetry.prometheus.commonLabels`.
+
+A PodMonitor's scrape job is `<namespace>/<name>`. A ServiceMonitor's jobs are
+the Services it selects (or their `jobLabel` value), so the plugin also lists
+Services.
 
 Adding a system (e.g. PMM) means adding a `Source` and a `pmm:` query to the
 panels that support it. The frontend renders whatever series it gets back and
@@ -58,7 +72,7 @@ dashboards:
     panels:
       - id: cpu
         title: CPU usage by component
-        unit: cores            # cores, bytes, ops (per second), ms, or empty
+        unit: cores            # cores, bytes, Bps, ops (per second), ms, or empty
         queries:
           prometheus: >-
             sum by (core_openeverest_io_component) (rate(process_cpu_seconds_total{${selector}}[${rate}]))
@@ -71,14 +85,68 @@ Built-in dashboards:
 
 | Provider | Panels |
 |---|---|
-| `milvus` | Requests per second, search/query latency p99, CPU and memory by component |
+| `milvus` | Requests/s, search/query latency p99, vectors inserted/s, collections, CPU and memory by component |
+| `valkey` | Commands/s, keyspace hit ratio, connected clients, memory, keys and network traffic by shard |
+| `mariadb` | Queries/s, slow queries/s, connections, running threads, InnoDB buffer pool hit ratio, network traffic |
+| `mssql` | Batch requests/s, transactions/s, user connections, buffer cache hit ratio, server memory, database size |
+| `provider-cassandra` | Client requests/s, latency p99 and timeouts/s by request type, native clients, live disk space, pending compactions |
+| `provider-cloudnative-pg` | Transactions/s, rows written/s, connections, cache hit ratio, replication lag, database size |
+| `tidb` | Queries/s by type, query latency p99, failed queries/s, connections, transactions/s, TiKV storage used |
+
+Each dashboard expects the provider's usual exporter (Milvus built-in,
+redis_exporter, mysqld_exporter, sql_exporter with the mssql-operator
+collectors, k8ssandra's modern metrics endpoint, the CloudNativePG exporter,
+TiDB/TiKV/PD built-in) and a monitor the plugin can discover (see
+[Sources](#sources)).
+
+### Custom dashboards
+
+Admins can add dashboards for more providers or replace the built-in ones
+without rebuilding the plugin, through a ConfigMap in the same format. Set them
+in the chart values, which renders the ConfigMap:
+
+```yaml
+dashboards:
+  overrides:
+    valkey:
+      panels:
+        - id: commands
+          title: Commands per second
+          unit: ops
+          queries:
+            prometheus: >-
+              sum by (valkey_io_shard_index) (rate(redis_commands_processed_total{${selector}}[${rate}]))
+        - id: memory
+          title: Memory used by shard
+          unit: bytes
+          queries:
+            prometheus: >-
+              sum by (valkey_io_shard_index) (redis_memory_used_bytes{${selector}})
+plugin:
+  extensionPoints:
+    - type: clusterDetailTab
+      path: metrics
+      label: Metrics
+      providers: [milvus, valkey]   # show the tab for the new provider
+```
+
+or point `dashboards.existingConfigMap` at a ConfigMap you manage yourself
+(key `dashboards.yaml`, content `dashboards: {...}`), e.g. with GitOps.
+
+- A provider's dashboard replaces its built-in one as a whole; `{panels: []}`
+  hides it (the metric search stays available).
+- Edits to the ConfigMap apply within about a minute, without a restart.
+- Every Prometheus query must use `${selector}`. A file with an invalid
+  dashboard or an unscoped query is rejected as a whole: the plugin keeps the
+  last good dashboards and logs why.
 
 ## Requirements
 
 - OpenEverest with plugin support (`plugins.extensions.openeverest.io` CRD).
 - The [Prometheus Operator](https://prometheus-operator.dev) and a Prometheus
-  that selects the providers' PodMonitors (for kube-prometheus-stack, set the
-  provider's `podMonitorLabels` to `release: <release-name>`).
+  that selects the instances' PodMonitors/ServiceMonitors (for
+  kube-prometheus-stack, label them `release: <release-name>`, e.g. via the
+  Milvus provider's `podMonitorLabels`).
 - Prometheus monitoring enabled on the instance (for Milvus, the
   *Monitoring → Prometheus* toggle).
 
@@ -93,6 +161,8 @@ helm install plugin-metrics charts/plugin-metrics \
 | Value | Default | Description |
 |---|---|---|
 | `prometheus.url` | `http://kube-prometheus-stack-prometheus.monitoring.svc:9090` | In-cluster Prometheus HTTP API |
+| `dashboards.overrides` | `{}` | Dashboards added or replaced by provider (see [Custom dashboards](#custom-dashboards)) |
+| `dashboards.existingConfigMap` | `""` | Your own ConfigMap with `dashboards.yaml`; wins over `overrides` |
 | `plugin.extensionPoints[0].providers` | `[milvus]` | Providers that get the Metrics tab |
 | `everestAPIURL` | discovered | Everest API the backend authorizes against |
 
@@ -148,6 +218,5 @@ it at `/main.js`.
 
 ## Roadmap
 
-- User-defined dashboards shipped as a ConfigMap.
 - More sources: PMM; Prometheus endpoints registered through `MonitoringConfig`.
 - ServiceMonitor discovery and dashboards for more providers.

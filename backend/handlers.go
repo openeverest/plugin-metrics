@@ -18,9 +18,9 @@ import (
 const defaultK8sCluster = "main"
 
 type server struct {
-	everest *everestClient
-	catalog *dashboard.Catalog
-	sources []source.Source
+	everest    *everestClient
+	dashboards *dashboard.Loader
+	sources    []source.Source
 }
 
 type instanceRef struct {
@@ -145,7 +145,7 @@ func (s *server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 
 	response := dashboardResponse{Source: sourceInfo{Type: src.Type(), Status: status}, Panels: []panelInfo{}}
 	_, response.Source.Explorable = src.(source.Explorer)
-	if d, ok := s.catalog.ForProvider(in.Spec.ProviderRef.Name); ok && status.Enabled {
+	if d, ok := s.dashboards.Catalog().ForProvider(in.Spec.ProviderRef.Name); ok && status.Enabled {
 		for _, panel := range d.Panels {
 			if _, ok := panel.Queries[src.Type()]; ok {
 				response.Panels = append(response.Panels, panelInfo{ID: panel.ID, Title: panel.Title, Unit: panel.Unit})
@@ -177,7 +177,7 @@ func (s *server) handlePanel(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	d, _ := s.catalog.ForProvider(in.Spec.ProviderRef.Name)
+	d, _ := s.dashboards.Catalog().ForProvider(in.Spec.ProviderRef.Name)
 	panel, ok := d.Panel(r.PathValue("panel"))
 	query, hasQuery := panel.Queries[src.Type()]
 	if !ok || !hasQuery {

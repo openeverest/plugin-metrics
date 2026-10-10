@@ -1,0 +1,12 @@
+{{- if and .Values.dashboards.overrides (not .Values.dashboards.existingConfigMap) }}
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ include "plugin-metrics.fullname" . }}-dashboards
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "plugin-metrics.labels" . | nindent 4 }}
+data:
+  dashboards.yaml: |
+    {{- dict "dashboards" .Values.dashboards.overrides | toYaml | nindent 4 }}
+{{- end }}
