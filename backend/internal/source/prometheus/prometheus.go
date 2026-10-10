@@ -161,9 +161,22 @@ func (s *Source) jobs(ctx context.Context, target source.Target) ([]string, erro
 	return jobs, nil
 }
 
-func renderQuery(query, namespace string, jobs []string, step time.Duration) (string, error) {
+// ValidateQuery implements source.Source: without the selector a query would
+// read every instance's metrics.
+func (s *Source) ValidateQuery(query string) error {
+	return validateQuery(query)
+}
+
+func validateQuery(query string) error {
 	if !strings.Contains(query, selectorPlaceholder) {
-		return "", fmt.Errorf("query must be scoped with %s", selectorPlaceholder)
+		return fmt.Errorf("query must be scoped with %s", selectorPlaceholder)
+	}
+	return nil
+}
+
+func renderQuery(query, namespace string, jobs []string, step time.Duration) (string, error) {
+	if err := validateQuery(query); err != nil {
+		return "", err
 	}
 	rate := max(step, minRateInterval)
 	return strings.NewReplacer(

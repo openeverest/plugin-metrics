@@ -58,7 +58,7 @@ dashboards:
     panels:
       - id: cpu
         title: CPU usage by component
-        unit: cores            # cores, bytes, ops (per second), ms, or empty
+        unit: cores            # cores, bytes, Bps, ops (per second), ms, or empty
         queries:
           prometheus: >-
             sum by (core_openeverest_io_component) (rate(process_cpu_seconds_total{${selector}}[${rate}]))
@@ -72,6 +72,47 @@ Built-in dashboards:
 | Provider | Panels |
 |---|---|
 | `milvus` | Requests per second, search/query latency p99, CPU and memory by component |
+
+### Custom dashboards
+
+Admins can add dashboards for more providers or replace the built-in ones
+without rebuilding the plugin, through a ConfigMap in the same format. Set them
+in the chart values, which renders the ConfigMap:
+
+```yaml
+dashboards:
+  overrides:
+    valkey:
+      panels:
+        - id: commands
+          title: Commands per second
+          unit: ops
+          queries:
+            prometheus: >-
+              sum by (valkey_io_shard_index) (rate(redis_commands_processed_total{${selector}}[${rate}]))
+        - id: memory
+          title: Memory used by shard
+          unit: bytes
+          queries:
+            prometheus: >-
+              sum by (valkey_io_shard_index) (redis_memory_used_bytes{${selector}})
+plugin:
+  extensionPoints:
+    - type: clusterDetailTab
+      path: metrics
+      label: Metrics
+      providers: [milvus, valkey]   # show the tab for the new provider
+```
+
+or point `dashboards.existingConfigMap` at a ConfigMap you manage yourself
+(key `dashboards.yaml`, content `dashboards: {...}`), e.g. with GitOps.
+
+- A provider's dashboard replaces its built-in one as a whole; `{panels: []}`
+  hides it (the metric search stays available).
+- Edits to the ConfigMap apply within about a minute, without a restart.
+- Every Prometheus query must use `${selector}`. A file with an invalid
+  dashboard or an unscoped query is rejected as a whole: the plugin keeps the
+  last good dashboards and logs why.
 
 ## Requirements
 
@@ -93,6 +134,8 @@ helm install plugin-metrics charts/plugin-metrics \
 | Value | Default | Description |
 |---|---|---|
 | `prometheus.url` | `http://kube-prometheus-stack-prometheus.monitoring.svc:9090` | In-cluster Prometheus HTTP API |
+| `dashboards.overrides` | `{}` | Dashboards added or replaced by provider (see [Custom dashboards](#custom-dashboards)) |
+| `dashboards.existingConfigMap` | `""` | Your own ConfigMap with `dashboards.yaml`; wins over `overrides` |
 | `plugin.extensionPoints[0].providers` | `[milvus]` | Providers that get the Metrics tab |
 | `everestAPIURL` | discovered | Everest API the backend authorizes against |
 
@@ -148,6 +191,5 @@ it at `/main.js`.
 
 ## Roadmap
 
-- User-defined dashboards shipped as a ConfigMap.
 - More sources: PMM; Prometheus endpoints registered through `MonitoringConfig`.
 - ServiceMonitor discovery and dashboards for more providers.

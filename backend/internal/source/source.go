@@ -54,6 +54,8 @@ type Source interface {
 	Status(ctx context.Context, target Target) (Status, error)
 	// QueryRange runs a dashboard query scoped to the target.
 	QueryRange(ctx context.Context, target Target, query string, window Window) ([]Series, error)
+	// ValidateQuery rejects a dashboard query this source could not run safely.
+	ValidateQuery(query string) error
 }
 
 // Metric types a source reports; they decide how a metric is charted.

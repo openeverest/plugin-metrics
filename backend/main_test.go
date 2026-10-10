@@ -32,6 +32,8 @@ func (f *fakeSource) QueryRange(_ context.Context, _ source.Target, query string
 	return []source.Series{{Name: "proxy", Points: []source.Point{{T: 1}}}}, nil
 }
 
+func (f *fakeSource) ValidateQuery(string) error { return nil }
+
 type fakeExplorer struct {
 	fakeSource
 	explored []source.Metric
@@ -68,7 +70,9 @@ func newTestServer(t *testing.T, sources ...source.Source) *httptest.Server {
 
 	catalog, err := dashboard.Parse([]byte(testCatalog))
 	require.NoError(t, err)
-	srv := httptest.NewServer(newMux(&server{everest: newEverestClient(everest.URL), catalog: catalog, sources: sources}))
+	dashboards, err := dashboard.NewLoader(catalog, "", queryValidator(sources))
+	require.NoError(t, err)
+	srv := httptest.NewServer(newMux(&server{everest: newEverestClient(everest.URL), dashboards: dashboards, sources: sources}))
 	t.Cleanup(srv.Close)
 	return srv
 }

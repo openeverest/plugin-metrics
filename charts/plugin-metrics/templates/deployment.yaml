@@ -41,6 +41,10 @@ spec:
               value: {{ .Values.service.port | quote }}
             - name: PROMETHEUS_URL
               value: {{ .Values.prometheus.url | quote }}
+            {{- if include "plugin-metrics.dashboardsConfigMap" . }}
+            - name: DASHBOARDS_FILE
+              value: /etc/plugin-metrics/dashboards/dashboards.yaml
+            {{- end }}
             {{- if .Values.everestAPIURL }}
             - name: EVEREST_API_URL
               value: {{ .Values.everestAPIURL | quote }}
@@ -59,3 +63,15 @@ spec:
             periodSeconds: 10
           resources:
             {{- toYaml .Values.resources | nindent 12 }}
+          {{- if include "plugin-metrics.dashboardsConfigMap" . }}
+          # No subPath: only a directory mount receives ConfigMap updates.
+          volumeMounts:
+            - name: dashboards
+              mountPath: /etc/plugin-metrics/dashboards
+              readOnly: true
+      volumes:
+        - name: dashboards
+          configMap:
+            name: {{ include "plugin-metrics.dashboardsConfigMap" . }}
+            optional: true
+          {{- end }}
