@@ -32,6 +32,7 @@ plugin:
         - mssql
         - provider-cassandra
         - provider-cloudnative-pg
+        - tidb
 
 prometheus:
   # In-cluster Prometheus HTTP API. The default matches kube-prometheus-stack

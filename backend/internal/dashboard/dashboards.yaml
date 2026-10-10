@@ -201,6 +201,45 @@ dashboards:
           prometheus: >-
             max by (database) (sum by (database, pod) (mssql_database_size_bytes{${selector}}))
 
+  # Native metrics of TiDB, TiKV and PD; no exporter sidecar.
+  tidb:
+    panels:
+      - id: queries
+        title: Queries per second
+        unit: ops
+        queries:
+          prometheus: >-
+            sum by (type) (rate(tidb_executor_statement_total{${selector}}[${rate}]))
+      - id: latency
+        title: Query latency (p99)
+        unit: ms
+        queries:
+          prometheus: >-
+            histogram_quantile(0.99, sum by (le) (rate(tidb_server_handle_query_duration_seconds_bucket{${selector}}[${rate}]))) * 1000
+      - id: failed-queries
+        title: Failed queries per second
+        unit: ops
+        queries:
+          prometheus: >-
+            sum by (type) (rate(tidb_server_execute_error_total{${selector}}[${rate}]))
+      - id: connections
+        title: Connections
+        queries:
+          prometheus: >-
+            sum by (pod) (tidb_server_connections{${selector}})
+      - id: transactions
+        title: Transactions per second
+        unit: ops
+        queries:
+          prometheus: >-
+            sum by (type) (rate(tidb_session_transaction_duration_seconds_count{${selector},scope="general"}[${rate}]))
+      - id: storage
+        title: TiKV storage used
+        unit: bytes
+        queries:
+          prometheus: >-
+            sum by (pod) (tikv_store_size_bytes{${selector},type="used"})
+
   # redis_exporter sidecar; series split by shard.
   valkey:
     panels:

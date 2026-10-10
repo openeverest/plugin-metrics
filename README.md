@@ -41,7 +41,21 @@ type Source interface {
 
 | Source | Monitored when | Scoping |
 |---|---|---|
-| `prometheus` | The provider created a PodMonitor for the instance (labels `app.kubernetes.io/managed-by=everest`, `app.kubernetes.io/instance=<name>`) | `${selector}` expands to the instance's namespace and scrape jobs |
+| `prometheus` | A PodMonitor or ServiceMonitor for the instance exists (see below) | `${selector}` expands to the instance's namespace and scrape jobs |
+
+The Prometheus source finds an instance's monitors in its namespace by either
+label set:
+
+- `app.kubernetes.io/managed-by=everest` + `app.kubernetes.io/instance=<name>`
+  for monitors the provider creates itself;
+- `core.openeverest.io/instance=<name>` for monitors a database operator
+  creates (the operator owns `managed-by`), which the provider labels through
+  the operator's API, e.g. MariaDB `spec.inheritMetadata` or k8ssandra
+  `telemetry.prometheus.commonLabels`.
+
+A PodMonitor's scrape job is `<namespace>/<name>`. A ServiceMonitor's jobs are
+the Services it selects (or their `jobLabel` value), so the plugin also lists
+Services.
 
 Adding a system (e.g. PMM) means adding a `Source` and a `pmm:` query to the
 panels that support it. The frontend renders whatever series it gets back and
@@ -77,11 +91,13 @@ Built-in dashboards:
 | `mssql` | Batch requests/s, transactions/s, user connections, buffer cache hit ratio, server memory, database size |
 | `provider-cassandra` | Client requests/s, latency p99 and timeouts/s by request type, native clients, live disk space, pending compactions |
 | `provider-cloudnative-pg` | Transactions/s, rows written/s, connections, cache hit ratio, replication lag, database size |
+| `tidb` | Queries/s by type, query latency p99, failed queries/s, connections, transactions/s, TiKV storage used |
 
 Each dashboard expects the provider's usual exporter (Milvus built-in,
 redis_exporter, mysqld_exporter, sql_exporter with the mssql-operator
-collectors, k8ssandra's modern metrics endpoint, the CloudNativePG exporter)
-and a PodMonitor the plugin can discover (see [Sources](#sources)).
+collectors, k8ssandra's modern metrics endpoint, the CloudNativePG exporter,
+TiDB/TiKV/PD built-in) and a monitor the plugin can discover (see
+[Sources](#sources)).
 
 ### Custom dashboards
 
@@ -128,8 +144,9 @@ or point `dashboards.existingConfigMap` at a ConfigMap you manage yourself
 
 - OpenEverest with plugin support (`plugins.extensions.openeverest.io` CRD).
 - The [Prometheus Operator](https://prometheus-operator.dev) and a Prometheus
-  that selects the providers' PodMonitors (for kube-prometheus-stack, set the
-  provider's `podMonitorLabels` to `release: <release-name>`).
+  that selects the instances' PodMonitors/ServiceMonitors (for
+  kube-prometheus-stack, label them `release: <release-name>`, e.g. via the
+  Milvus provider's `podMonitorLabels`).
 - Prometheus monitoring enabled on the instance (for Milvus, the
   *Monitoring → Prometheus* toggle).
 

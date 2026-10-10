@@ -12,7 +12,7 @@ func TestBuiltInScopesEveryPrometheusQuery(t *testing.T) {
 	catalog, err := BuiltIn()
 	require.NoError(t, err)
 
-	for _, provider := range []string{"provider-cassandra", "provider-cloudnative-pg", "mariadb", "milvus", "mssql", "valkey"} {
+	for _, provider := range []string{"provider-cassandra", "provider-cloudnative-pg", "mariadb", "milvus", "mssql", "tidb", "valkey"} {
 		d, ok := catalog.ForProvider(provider)
 		require.True(t, ok, "no built-in dashboard for %s", provider)
 		assert.Len(t, d.Panels, 6, provider)
