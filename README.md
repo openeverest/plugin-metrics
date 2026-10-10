@@ -71,7 +71,17 @@ Built-in dashboards:
 
 | Provider | Panels |
 |---|---|
-| `milvus` | Requests per second, search/query latency p99, CPU and memory by component |
+| `milvus` | Requests/s, search/query latency p99, vectors inserted/s, collections, CPU and memory by component |
+| `valkey` | Commands/s, keyspace hit ratio, connected clients, memory, keys and network traffic by shard |
+| `mariadb` | Queries/s, slow queries/s, connections, running threads, InnoDB buffer pool hit ratio, network traffic |
+| `mssql` | Batch requests/s, transactions/s, user connections, buffer cache hit ratio, server memory, database size |
+| `provider-cassandra` | Client requests/s, latency p99 and timeouts/s by request type, native clients, live disk space, pending compactions |
+| `provider-cloudnative-pg` | Transactions/s, rows written/s, connections, cache hit ratio, replication lag, database size |
+
+Each dashboard expects the provider's usual exporter (Milvus built-in,
+redis_exporter, mysqld_exporter, sql_exporter with the mssql-operator
+collectors, k8ssandra's modern metrics endpoint, the CloudNativePG exporter)
+and a PodMonitor the plugin can discover (see [Sources](#sources)).
 
 ### Custom dashboards
 

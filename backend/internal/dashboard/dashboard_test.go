@@ -12,11 +12,13 @@ func TestBuiltInScopesEveryPrometheusQuery(t *testing.T) {
 	catalog, err := BuiltIn()
 	require.NoError(t, err)
 
-	milvus, ok := catalog.ForProvider("milvus")
-	require.True(t, ok)
-	require.NotEmpty(t, milvus.Panels)
-	for _, panel := range milvus.Panels {
-		assert.Contains(t, panel.Queries["prometheus"], "${selector}", "panel %q would read other instances' metrics", panel.ID)
+	for _, provider := range []string{"provider-cassandra", "provider-cloudnative-pg", "mariadb", "milvus", "mssql", "valkey"} {
+		d, ok := catalog.ForProvider(provider)
+		require.True(t, ok, "no built-in dashboard for %s", provider)
+		assert.Len(t, d.Panels, 6, provider)
+		for _, panel := range d.Panels {
+			assert.Contains(t, panel.Queries["prometheus"], "${selector}", "%s panel %q would read other instances' metrics", provider, panel.ID)
+		}
 	}
 }
 

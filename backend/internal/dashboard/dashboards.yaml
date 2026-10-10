@@ -3,8 +3,127 @@
 # Each panel holds one query per monitoring source type. Prometheus queries
 # must use ${selector}, which the plugin expands to the instance's namespace
 # and scrape jobs, and may use ${rate} as the rate() window for the chosen time
-# range. Units: cores, bytes, ops (per second), ms, or empty for plain numbers.
+# range. Units: cores, bytes, Bps, ops (per second), ms, or empty for plain
+# numbers (ratios are given in percent).
 dashboards:
+  # k8ssandra-operator telemetry, modern metrics endpoint (management API, port 9000).
+  provider-cassandra:
+    panels:
+      - id: requests
+        title: Client requests per second
+        unit: ops
+        queries:
+          prometheus: >-
+            sum by (request_type) (rate(org_apache_cassandra_metrics_client_request_latency_count{${selector}}[${rate}]))
+      - id: latency
+        title: Client request latency (p99)
+        unit: ms
+        queries:
+          # The histogram is in microseconds.
+          prometheus: >-
+            histogram_quantile(0.99, sum by (le, request_type) (rate(org_apache_cassandra_metrics_client_request_latency_bucket{${selector}}[${rate}]))) / 1000
+      - id: timeouts
+        title: Client request timeouts per second
+        unit: ops
+        queries:
+          prometheus: >-
+            sum by (request_type) (rate(org_apache_cassandra_metrics_client_request_timeouts_total{${selector}}[${rate}]))
+      - id: clients
+        title: Connected native clients
+        queries:
+          prometheus: >-
+            sum by (pod) (org_apache_cassandra_metrics_client_connected_native_clients{${selector}})
+      - id: disk
+        title: Live disk space used
+        unit: bytes
+        queries:
+          prometheus: >-
+            sum by (pod) (org_apache_cassandra_metrics_table_live_disk_space_used{${selector}})
+      - id: compactions
+        title: Pending compactions
+        queries:
+          prometheus: >-
+            sum by (pod) (org_apache_cassandra_metrics_table_pending_compactions{${selector}})
+
+  # CloudNativePG instance manager exporter (port 9187), default monitoring queries.
+  provider-cloudnative-pg:
+    panels:
+      - id: transactions
+        title: Transactions per second
+        unit: ops
+        queries:
+          prometheus: >-
+            sum by (pod) (rate(cnpg_pg_stat_database_xact_commit{${selector}}[${rate}]) + rate(cnpg_pg_stat_database_xact_rollback{${selector}}[${rate}]))
+      - id: rows-written
+        title: Rows written per second
+        unit: ops
+        queries:
+          prometheus: >-
+            sum by (pod) (rate(cnpg_pg_stat_database_tup_inserted{${selector}}[${rate}]) + rate(cnpg_pg_stat_database_tup_updated{${selector}}[${rate}]) + rate(cnpg_pg_stat_database_tup_deleted{${selector}}[${rate}]))
+      - id: connections
+        title: Connections
+        queries:
+          prometheus: >-
+            sum by (pod) (cnpg_backends_total{${selector}})
+      - id: cache-hit-ratio
+        title: Cache hit ratio (%)
+        queries:
+          prometheus: >-
+            100 * sum by (pod) (rate(cnpg_pg_stat_database_blks_hit{${selector}}[${rate}]))
+            / (sum by (pod) (rate(cnpg_pg_stat_database_blks_hit{${selector}}[${rate}])) + sum by (pod) (rate(cnpg_pg_stat_database_blks_read{${selector}}[${rate}])))
+      - id: replication-lag
+        title: Replication lag
+        unit: ms
+        queries:
+          prometheus: >-
+            max by (pod) (cnpg_pg_replication_lag{${selector}}) * 1000
+      - id: database-size
+        title: Database size
+        unit: bytes
+        queries:
+          # Every instance reports the same databases; show each once.
+          prometheus: >-
+            max by (datname) (cnpg_pg_database_size_bytes{${selector}})
+
+  # mysqld_exporter.
+  mariadb:
+    panels:
+      - id: queries
+        title: Queries per second
+        unit: ops
+        queries:
+          prometheus: >-
+            sum by (pod) (rate(mysql_global_status_queries{${selector}}[${rate}]))
+      - id: slow-queries
+        title: Slow queries per second
+        unit: ops
+        queries:
+          prometheus: >-
+            sum by (pod) (rate(mysql_global_status_slow_queries{${selector}}[${rate}]))
+      - id: connections
+        title: Connections
+        queries:
+          prometheus: >-
+            sum by (pod) (mysql_global_status_threads_connected{${selector}})
+      - id: running-threads
+        title: Running threads
+        queries:
+          prometheus: >-
+            sum by (pod) (mysql_global_status_threads_running{${selector}})
+      - id: buffer-pool-hit-ratio
+        title: InnoDB buffer pool hit ratio (%)
+        queries:
+          prometheus: >-
+            100 * (1 - sum by (pod) (rate(mysql_global_status_innodb_buffer_pool_reads{${selector}}[${rate}]))
+            / sum by (pod) (rate(mysql_global_status_innodb_buffer_pool_read_requests{${selector}}[${rate}])))
+      - id: network
+        title: Network traffic
+        unit: Bps
+        queries:
+          prometheus: >-
+            sum by (pod) (rate(mysql_global_status_bytes_received{${selector}}[${rate}]) + rate(mysql_global_status_bytes_sent{${selector}}[${rate}]))
+
+  # Built-in metrics of every Milvus component (port 9091).
   milvus:
     panels:
       - id: requests
@@ -19,6 +138,17 @@ dashboards:
         queries:
           prometheus: >-
             histogram_quantile(0.99, sum by (le, query_type) (rate(milvus_proxy_sq_latency_bucket{${selector}}[${rate}])))
+      - id: vectors
+        title: Vectors inserted per second
+        unit: ops
+        queries:
+          prometheus: >-
+            sum(rate(milvus_proxy_insert_vectors_count{${selector}}[${rate}]))
+      - id: collections
+        title: Collections
+        queries:
+          prometheus: >-
+            max(milvus_rootcoord_collection_num{${selector}})
       - id: cpu
         title: CPU usage by component
         unit: cores
@@ -31,3 +161,81 @@ dashboards:
         queries:
           prometheus: >-
             sum by (core_openeverest_io_component) (process_resident_memory_bytes{${selector}})
+
+  # sql_exporter sidecar with the mssql-operator default collectors.
+  mssql:
+    panels:
+      - id: batch-requests
+        title: Batch requests per second
+        unit: ops
+        queries:
+          prometheus: >-
+            sum by (pod) (rate(mssql_batch_requests_total{${selector}}[${rate}]))
+      - id: transactions
+        title: Transactions per second
+        unit: ops
+        queries:
+          prometheus: >-
+            sum by (pod) (rate(mssql_transactions_total{${selector}}[${rate}]))
+      - id: connections
+        title: User connections
+        queries:
+          prometheus: >-
+            sum by (pod) (mssql_user_connections{${selector}})
+      - id: buffer-cache-hit-ratio
+        title: Buffer cache hit ratio (%)
+        queries:
+          prometheus: >-
+            avg by (pod) (mssql_buffer_cache_hit_ratio{${selector}})
+      - id: memory
+        title: Server memory
+        unit: bytes
+        queries:
+          prometheus: >-
+            sum by (pod) (mssql_total_server_memory_bytes{${selector}})
+      - id: database-size
+        title: Database size
+        unit: bytes
+        queries:
+          # Availability group replicas report the same databases; show each once.
+          prometheus: >-
+            max by (database) (sum by (database, pod) (mssql_database_size_bytes{${selector}}))
+
+  # redis_exporter sidecar; series split by shard.
+  valkey:
+    panels:
+      - id: commands
+        title: Commands per second
+        unit: ops
+        queries:
+          prometheus: >-
+            sum by (valkey_io_shard_index) (rate(redis_commands_processed_total{${selector}}[${rate}]))
+      - id: hit-ratio
+        title: Keyspace hit ratio (%)
+        queries:
+          prometheus: >-
+            100 * sum(rate(redis_keyspace_hits_total{${selector}}[${rate}]))
+            / (sum(rate(redis_keyspace_hits_total{${selector}}[${rate}])) + sum(rate(redis_keyspace_misses_total{${selector}}[${rate}])))
+      - id: clients
+        title: Connected clients
+        queries:
+          prometheus: >-
+            sum by (valkey_io_shard_index) (redis_connected_clients{${selector}})
+      - id: memory
+        title: Memory used
+        unit: bytes
+        queries:
+          prometheus: >-
+            sum by (valkey_io_shard_index) (redis_memory_used_bytes{${selector}})
+      - id: keys
+        title: Keys
+        queries:
+          # Replicas hold the same keys as their primary; count each shard once.
+          prometheus: >-
+            sum by (valkey_io_shard_index) (max by (valkey_io_shard_index, db) (redis_db_keys{${selector}}))
+      - id: network
+        title: Network traffic
+        unit: Bps
+        queries:
+          prometheus: >-
+            sum by (valkey_io_shard_index) (rate(redis_net_input_bytes_total{${selector}}[${rate}]) + rate(redis_net_output_bytes_total{${selector}}[${rate}]))

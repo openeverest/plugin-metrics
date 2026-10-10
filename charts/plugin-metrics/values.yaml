@@ -27,6 +27,11 @@ plugin:
       # Providers with a built-in dashboard; others would only see an empty tab.
       providers:
         - milvus
+        - valkey
+        - mariadb
+        - mssql
+        - provider-cassandra
+        - provider-cloudnative-pg
 
 prometheus:
   # In-cluster Prometheus HTTP API. The default matches kube-prometheus-stack
