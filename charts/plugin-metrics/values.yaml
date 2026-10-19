@@ -33,6 +33,9 @@ plugin:
         - provider-cassandra
         - provider-cloudnative-pg
         - tidb
+        - percona-server-mongodb
+        - provider-percona-postgresql
+        - percona-xtradb-cluster
 
 prometheus:
   # In-cluster Prometheus HTTP API. The default matches kube-prometheus-stack

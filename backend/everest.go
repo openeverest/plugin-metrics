@@ -41,6 +41,14 @@ type instance struct {
 		ProviderRef struct {
 			Name string `json:"name"`
 		} `json:"providerRef"`
+		Components struct {
+			Monitoring struct {
+				Parameters struct {
+					// Providers that ship metrics to PMM take the MonitoringConfig here.
+					MonitoringConfigName string `json:"monitoringConfigName"`
+				} `json:"parameters"`
+			} `json:"monitoring"`
+		} `json:"components"`
 	} `json:"spec"`
 }
 

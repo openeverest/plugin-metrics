@@ -8,18 +8,35 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-func TestBuiltInScopesEveryPrometheusQuery(t *testing.T) {
+func TestBuiltInScopesEveryQuery(t *testing.T) {
 	catalog, err := BuiltIn()
 	require.NoError(t, err)
 
-	for _, provider := range []string{"provider-cassandra", "provider-cloudnative-pg", "mariadb", "milvus", "mssql", "tidb", "valkey"} {
+	for _, provider := range []string{
+		"provider-cassandra", "provider-cloudnative-pg", "mariadb", "milvus", "mssql", "tidb", "valkey",
+		"percona-server-mongodb", "provider-percona-postgresql", "percona-xtradb-cluster",
+	} {
 		d, ok := catalog.ForProvider(provider)
 		require.True(t, ok, "no built-in dashboard for %s", provider)
 		assert.Len(t, d.Panels, 6, provider)
+	}
+	for provider, d := range catalog.Dashboards {
 		for _, panel := range d.Panels {
-			assert.Contains(t, panel.Queries["prometheus"], "${selector}", "%s panel %q would read other instances' metrics", provider, panel.ID)
+			for sourceType, query := range panel.Queries {
+				assert.Contains(t, query, "${selector}", "%s panel %q would read other instances' %s metrics", provider, panel.ID, sourceType)
+			}
 		}
 	}
+}
+
+func TestUses(t *testing.T) {
+	d := Dashboard{Panels: []Panel{
+		{ID: "a", Queries: map[string]string{"prometheus": "q"}},
+		{ID: "b", Queries: map[string]string{"pmm": "q"}},
+	}}
+	assert.True(t, d.Uses("pmm"))
+	assert.False(t, d.Uses("other"))
+	assert.False(t, Dashboard{}.Uses("pmm"), "a provider without a dashboard uses no source")
 }
 
 func TestParseRejectsInvalidPanels(t *testing.T) {

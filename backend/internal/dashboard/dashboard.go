@@ -69,6 +69,16 @@ func (c *Catalog) ForProvider(provider string) (Dashboard, bool) {
 	return dashboard, ok
 }
 
+// Uses reports whether any panel has a query for the source type.
+func (d Dashboard) Uses(sourceType string) bool {
+	for _, panel := range d.Panels {
+		if _, ok := panel.Queries[sourceType]; ok {
+			return true
+		}
+	}
+	return false
+}
+
 // Panel returns the panel with the given id.
 func (d Dashboard) Panel(id string) (Panel, bool) {
 	for _, panel := range d.Panels {

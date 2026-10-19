@@ -17,15 +17,18 @@ flowchart LR
   BE -->|1. read the Instance as the user| API[Everest API]
   BE -->|2. pick a source that monitors it| SRC{{Sources}}
   SRC -->|3. scoped query| P[(Prometheus)]
+  SRC -->|3. scoped query| PMM[(PMM)]
 ```
 
 1. Every request is authorized by reading the Instance from the Everest API
    **with the caller's token**, so users only see metrics of instances they can read.
 2. The backend asks each configured **source** whether it monitors the instance
-   and uses the first one that does.
+   and uses the first one that does, trying the sources the provider's
+   dashboard has queries for first.
 3. It runs the dashboard's queries for that source. Queries come from the
    plugin's configuration, never from the browser, and are always scoped to the
-   instance, because Prometheus itself has no per-tenant isolation.
+   instance, because neither Prometheus nor a shared PMM server isolates
+   tenants.
 
 ### Sources
 
@@ -42,6 +45,7 @@ type Source interface {
 | Source | Monitored when | Scoping |
 |---|---|---|
 | `prometheus` | A PodMonitor or ServiceMonitor for the instance exists (see below) | `${selector}` expands to the instance's namespace and scrape jobs |
+| `pmm` | The instance's `monitoring` component references a PMM `MonitoringConfig` | `${selector}` expands to the instance's `namespace` and `core_openeverest_io_instance` labels, also enforced as `extra_filters[]` |
 
 The Prometheus source finds an instance's monitors in its namespace by either
 label set:
@@ -57,8 +61,20 @@ A PodMonitor's scrape job is `<namespace>/<name>`. A ServiceMonitor's jobs are
 the Services it selects (or their `jobLabel` value), so the plugin also lists
 Services.
 
-Adding a system (e.g. PMM) means adding a `Source` and a `pmm:` query to the
-panels that support it. The frontend renders whatever series it gets back and
+The PMM source reads the instance's `MonitoringConfig`
+(`spec.components.monitoring.parameters.monitoringConfigName`) and the Secret
+it references, and queries that PMM server's Prometheus API
+(`<url>/prometheus/api/v1`) with the Secret's `apiKey` as a bearer token,
+honoring `verifyTLS`. Providers label every series an instance pushes to PMM
+with `namespace` and `core_openeverest_io_instance` (Percona providers do so
+through `pmm-admin --custom-labels`), which keeps queries to one instance on a
+PMM server that monitors many. Series are named after the database pod
+(PMM's `service_name`, `<namespace>-<pod>`, without the namespace). The labels
+do not identify the Kubernetes cluster yet, so a PMM server shared by several
+clusters should not hold instances with the same namespace and name.
+
+Adding another system means adding a `Source` and its queries to the panels
+that support it. The frontend renders whatever series it gets back and
 doesn't change.
 
 ### Dashboards
@@ -79,7 +95,9 @@ dashboards:
 ```
 
 `${rate}` is a `rate()` window matched to the selected time range. Each series
-is named after the labels the query keeps (here, the component).
+is named after the labels the query keeps (here, the component). A panel may
+hold a query per source, e.g. `prometheus:` and `pmm:`, and is shown for
+whichever source monitors the instance.
 
 Built-in dashboards:
 
@@ -92,12 +110,15 @@ Built-in dashboards:
 | `provider-cassandra` | Client requests/s, latency p99 and timeouts/s by request type, native clients, live disk space, pending compactions |
 | `provider-cloudnative-pg` | Transactions/s, rows written/s, connections, cache hit ratio, replication lag, database size |
 | `tidb` | Queries/s by type, query latency p99, failed queries/s, connections, transactions/s, TiKV storage used |
+| `percona-server-mongodb` (PMM) | Operations/s, average latency by operation type, connections, WiredTiger cache used, operations queued on locks, replication lag by replica set |
+| `provider-percona-postgresql` (PMM) | Transactions/s, rows written/s, connections, cache hit ratio, replication lag, database size |
+| `percona-xtradb-cluster` (PMM or Prometheus) | Queries/s, connections, Galera flow control paused, Galera receive queue, InnoDB buffer pool hit ratio, network traffic |
 
 Each dashboard expects the provider's usual exporter (Milvus built-in,
 redis_exporter, mysqld_exporter, sql_exporter with the mssql-operator
 collectors, k8ssandra's modern metrics endpoint, the CloudNativePG exporter,
-TiDB/TiKV/PD built-in) and a monitor the plugin can discover (see
-[Sources](#sources)).
+TiDB/TiKV/PD built-in, or the PMM client's exporters) and a monitor or
+MonitoringConfig the plugin can discover (see [Sources](#sources)).
 
 ### Custom dashboards
 
@@ -136,7 +157,7 @@ or point `dashboards.existingConfigMap` at a ConfigMap you manage yourself
 - A provider's dashboard replaces its built-in one as a whole; `{panels: []}`
   hides it (the metric search stays available).
 - Edits to the ConfigMap apply within about a minute, without a restart.
-- Every Prometheus query must use `${selector}`. A file with an invalid
+- Every query must use `${selector}`. A file with an invalid
   dashboard or an unscoped query is rejected as a whole: the plugin keeps the
   last good dashboards and logs why.
 
@@ -149,6 +170,11 @@ or point `dashboards.existingConfigMap` at a ConfigMap you manage yourself
   Milvus provider's `podMonitorLabels`).
 - Prometheus monitoring enabled on the instance (for Milvus, the
   *Monitoring → Prometheus* toggle).
+- For PMM: PMM 3 and a provider that labels the series it pushes to PMM with
+  the instance (Percona providers for MongoDB, PostgreSQL and XtraDB Cluster),
+  with monitoring enabled on the instance through a `MonitoringConfig`. The
+  plugin reuses that MonitoringConfig's token, so its ServiceAccount can read
+  MonitoringConfigs and Secrets in every namespace.
 
 ## Installation
 
@@ -218,5 +244,5 @@ it at `/main.js`.
 
 ## Roadmap
 
-- More sources: PMM; Prometheus endpoints registered through `MonitoringConfig`.
+- More sources: Prometheus endpoints registered through `MonitoringConfig`.
 - ServiceMonitor discovery and dashboards for more providers.
