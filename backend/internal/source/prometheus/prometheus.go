@@ -64,7 +64,7 @@ func New(baseURL string, kube dynamic.Interface) *Source {
 func (s *Source) Type() string { return Type }
 
 // Status implements source.Source: an instance is monitored when its provider
-// created a PodMonitor for it.
+// created a PodMonitor for it. The scrape jobs found become the Scope.
 func (s *Source) Status(ctx context.Context, target source.Target) (source.Status, error) {
 	jobs, err := s.jobs(ctx, target)
 	switch {
@@ -75,12 +75,26 @@ func (s *Source) Status(ctx context.Context, target source.Target) (source.Statu
 	case len(jobs) == 0:
 		return source.Status{Reason: source.ReasonNotEnabled}, nil
 	}
-	return source.Status{Enabled: true}, nil
+	return source.Status{Enabled: true, Scope: scope{jobs: jobs}}, nil
+}
+
+// scope is the Status result queries reuse instead of listing monitors again.
+type scope struct {
+	jobs []string
+}
+
+// scopedJobs returns the target's scrape jobs, from the Scope Status resolved
+// when the caller passed it on.
+func (s *Source) scopedJobs(ctx context.Context, target source.Target) ([]string, error) {
+	if sc, ok := target.Scope.(scope); ok {
+		return sc.jobs, nil
+	}
+	return s.jobs(ctx, target)
 }
 
 // QueryRange implements source.Source.
 func (s *Source) QueryRange(ctx context.Context, target source.Target, query string, window source.Window) ([]source.Series, error) {
-	jobs, err := s.jobs(ctx, target)
+	jobs, err := s.scopedJobs(ctx, target)
 	if err != nil {
 		return nil, err
 	}

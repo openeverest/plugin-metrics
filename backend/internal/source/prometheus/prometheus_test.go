@@ -48,7 +48,7 @@ func TestStatus(t *testing.T) {
 		s := New("http://prometheus", fakeKube(podMonitor("vectors-metrics", instanceLabels)))
 		status, err := s.Status(context.Background(), target)
 		require.NoError(t, err)
-		assert.Equal(t, source.Status{Enabled: true}, status)
+		assert.Equal(t, source.Status{Enabled: true, Scope: scope{jobs: []string{"db/vectors-metrics"}}}, status)
 	})
 
 	t.Run("ignores PodMonitors of other instances and unmanaged ones", func(t *testing.T) {
@@ -132,4 +132,29 @@ func TestQueryRangeErrors(t *testing.T) {
 
 	_, err = New(prom.URL, fakeKube()).QueryRange(context.Background(), target, `x{${selector}}`, window)
 	assert.ErrorIs(t, err, errNotMonitored)
+}
+
+func TestQueriesReuseTheStatusScope(t *testing.T) {
+	var gotQueries []string
+	prom := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		gotQueries = append(gotQueries, r.URL.Query().Get("query"))
+		_, _ = w.Write([]byte(`{"status":"success","data":{"resultType":"matrix","result":[]}}`))
+	}))
+	defer prom.Close()
+	kube := fakeKube(podMonitor("vectors-metrics", instanceLabels))
+	s := New(prom.URL, kube)
+
+	status, err := s.Status(context.Background(), target)
+	require.NoError(t, err)
+	lookups := len(kube.Actions())
+	require.Positive(t, lookups)
+
+	scoped := target
+	scoped.Scope = status.Scope
+	window := source.Window{Start: time.Unix(0, 0), End: time.Unix(3600, 0), Step: time.Minute}
+	_, err = s.QueryRange(context.Background(), scoped, `x{${selector}}`, window)
+	require.NoError(t, err)
+
+	assert.Len(t, kube.Actions(), lookups, "a scoped query must not list monitors again")
+	assert.Equal(t, []string{`x{namespace="db",job=~"db/vectors-metrics"}`}, gotQueries)
 }

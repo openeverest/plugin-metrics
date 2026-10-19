@@ -176,6 +176,7 @@ func (s *server) handlePanel(w http.ResponseWriter, r *http.Request) {
 		writeError(w, &statusError{status: http.StatusConflict, message: "no monitoring source collects metrics for this instance"})
 		return
 	}
+	target.Scope = status.Scope
 
 	d, _ := s.dashboards.Catalog().ForProvider(in.Spec.ProviderRef.Name)
 	panel, ok := d.Panel(r.PathValue("panel"))
@@ -208,6 +209,7 @@ func (s *server) explorer(r *http.Request) (source.Explorer, source.Target, erro
 	if !status.Enabled || !ok {
 		return nil, target, &statusError{status: http.StatusConflict, message: "no monitoring source can explore this instance's metrics"}
 	}
+	target.Scope = status.Scope
 	return explorer, target, nil
 }
 

@@ -19,6 +19,7 @@ type fakeSource struct {
 	typ     string
 	status  source.Status
 	queries []string
+	scopes  []any
 }
 
 func (f *fakeSource) Type() string { return f.typ }
@@ -27,8 +28,9 @@ func (f *fakeSource) Status(context.Context, source.Target) (source.Status, erro
 	return f.status, nil
 }
 
-func (f *fakeSource) QueryRange(_ context.Context, _ source.Target, query string, _ source.Window) ([]source.Series, error) {
+func (f *fakeSource) QueryRange(_ context.Context, target source.Target, query string, _ source.Window) ([]source.Series, error) {
 	f.queries = append(f.queries, query)
+	f.scopes = append(f.scopes, target.Scope)
 	return []source.Series{{Name: "proxy", Points: []source.Point{{T: 1}}}}, nil
 }
 
@@ -39,12 +41,14 @@ type fakeExplorer struct {
 	explored []source.Metric
 }
 
-func (f *fakeExplorer) ListMetrics(context.Context, source.Target) ([]source.Metric, error) {
+func (f *fakeExplorer) ListMetrics(_ context.Context, target source.Target) ([]source.Metric, error) {
+	f.scopes = append(f.scopes, target.Scope)
 	return []source.Metric{{Name: "process_open_fds", Type: source.MetricGauge}}, nil
 }
 
-func (f *fakeExplorer) ExploreMetric(_ context.Context, _ source.Target, metric source.Metric, _ source.Window) (source.Exploration, error) {
+func (f *fakeExplorer) ExploreMetric(_ context.Context, target source.Target, metric source.Metric, _ source.Window) (source.Exploration, error) {
 	f.explored = append(f.explored, metric)
+	f.scopes = append(f.scopes, target.Scope)
 	return source.Exploration{Unit: "bytes"}, nil
 }
 
@@ -114,12 +118,13 @@ func TestDashboardExplainsWhyNothingIsMonitored(t *testing.T) {
 }
 
 func TestPanelRunsTheSourceQuery(t *testing.T) {
-	prom := &fakeSource{typ: "prometheus", status: source.Status{Enabled: true}}
+	prom := &fakeSource{typ: "prometheus", status: source.Status{Enabled: true, Scope: "jobs"}}
 	srv := newTestServer(t, prom)
 
 	var got panelDataResponse
 	require.Equal(t, http.StatusOK, get(t, srv.URL+"/api/panels/cpu"+instanceQuery+"&range=1h", "allowed", &got))
 	assert.Equal(t, []string{"prom-cpu"}, prom.queries)
+	assert.Equal(t, []any{"jobs"}, prom.scopes, "the query must reuse what Status resolved")
 	assert.Equal(t, "proxy", got.Series[0].Name)
 
 	assert.Equal(t, http.StatusNotFound, get(t, srv.URL+"/api/panels/pmm-only"+instanceQuery+"&range=1h", "allowed", nil))
@@ -135,7 +140,7 @@ func TestPanelRequiresAccessToTheInstance(t *testing.T) {
 }
 
 func TestExploreChartsAPickedMetric(t *testing.T) {
-	prom := &fakeExplorer{fakeSource: fakeSource{typ: "prometheus", status: source.Status{Enabled: true}}}
+	prom := &fakeExplorer{fakeSource: fakeSource{typ: "prometheus", status: source.Status{Enabled: true, Scope: "jobs"}}}
 	srv := newTestServer(t, prom)
 
 	var dashboard dashboardResponse
@@ -150,6 +155,7 @@ func TestExploreChartsAPickedMetric(t *testing.T) {
 	require.Equal(t, http.StatusOK, get(t, srv.URL+"/api/explore"+instanceQuery+"&metric=process_open_fds&type=gauge&range=24h", "allowed", &exploration))
 	assert.Equal(t, "bytes", exploration.Unit)
 	assert.Equal(t, []source.Metric{{Name: "process_open_fds", Type: "gauge"}}, prom.explored)
+	assert.Equal(t, []any{"jobs", "jobs"}, prom.scopes, "listing and exploring must reuse what Status resolved")
 }
 
 func TestExploreRejectsInvalidMetricsAndUsers(t *testing.T) {
