@@ -20,6 +20,10 @@ const (
 type Target struct {
 	Namespace string
 	Instance  string
+	// Scope is what the source's Status resolved for the target, e.g. its
+	// Prometheus scrape jobs. Callers copy it from Status so queries in the
+	// same request skip that lookup; when nil, the source resolves it again.
+	Scope any
 }
 
 // Window is the time range and resolution of a query.
@@ -33,6 +37,8 @@ type Window struct {
 type Status struct {
 	Enabled bool   `json:"enabled"`
 	Reason  string `json:"reason,omitempty"`
+	// Scope is set when Enabled; see Target.Scope.
+	Scope any `json:"-"`
 }
 
 // Point is one sample; V is nil when the source has no finite value.

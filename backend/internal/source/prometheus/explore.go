@@ -24,7 +24,7 @@ type targetMetadata struct {
 // ListMetrics implements source.Explorer: the metric families the instance's
 // scrape targets expose, with the series name to chart for each.
 func (s *Source) ListMetrics(ctx context.Context, target source.Target) ([]source.Metric, error) {
-	jobs, err := s.jobs(ctx, target)
+	jobs, err := s.scopedJobs(ctx, target)
 	if err != nil {
 		return nil, err
 	}

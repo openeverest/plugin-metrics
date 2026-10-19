@@ -62,6 +62,12 @@ func handleHealthz(w http.ResponseWriter, _ *http.Request) {
 	_, _ = w.Write([]byte("ok"))
 }
 
+// Client-side rate limit of the Kubernetes client.
+const (
+	kubeQPS   = 50
+	kubeBurst = 100
+)
+
 func kubeConfig() (*rest.Config, error) {
 	if cfg, err := rest.InClusterConfig(); err == nil {
 		return cfg, nil
@@ -109,6 +115,10 @@ func main() {
 	if err != nil {
 		log.Fatalf("kubernetes config: %v", err)
 	}
+	// client-go defaults to 5 QPS / burst 10, which queues a dashboard's
+	// concurrent panel requests for seconds.
+	cfg.QPS = kubeQPS
+	cfg.Burst = kubeBurst
 	kube, err := dynamic.NewForConfig(cfg)
 	if err != nil {
 		log.Fatalf("kubernetes client: %v", err)
