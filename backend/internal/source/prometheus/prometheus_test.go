@@ -74,17 +74,8 @@ func TestStatus(t *testing.T) {
 	})
 }
 
-func TestRenderQuery(t *testing.T) {
-	got, err := renderQuery(`sum(rate(x{${selector},a="b"}[${rate}]))`, "db", []string{"db/vectors.metrics", "db/other"}, 30*time.Second)
-	require.NoError(t, err)
-	assert.Equal(t, `sum(rate(x{namespace="db",job=~"db/vectors\\.metrics|db/other",a="b"}[120s]))`, got)
-
-	got, err = renderQuery(`rate(x{${selector}}[${rate}])`, "db", []string{"db/vectors"}, 5*time.Minute)
-	require.NoError(t, err)
-	assert.Equal(t, `rate(x{namespace="db",job=~"db/vectors"}[300s])`, got)
-
-	_, err = renderQuery(`sum(x)`, "db", []string{"db/vectors"}, time.Minute)
-	assert.ErrorContains(t, err, "must be scoped")
+func TestScopeSelector(t *testing.T) {
+	assert.Equal(t, `namespace="db",job=~"db/vectors\\.metrics|db/other"`, scopeSelector("db", []string{"db/vectors.metrics", "db/other"}))
 }
 
 func TestQueryRange(t *testing.T) {

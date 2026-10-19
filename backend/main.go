@@ -17,6 +17,7 @@ import (
 
 	"github.com/openeverest/plugin-metrics/backend/internal/dashboard"
 	"github.com/openeverest/plugin-metrics/backend/internal/source"
+	"github.com/openeverest/plugin-metrics/backend/internal/source/pmm"
 	"github.com/openeverest/plugin-metrics/backend/internal/source/prometheus"
 )
 
@@ -129,8 +130,9 @@ func main() {
 	}
 
 	prometheusURL := envOrDefault("PROMETHEUS_URL", "http://kube-prometheus-stack-prometheus.monitoring.svc:9090")
-	// Tried in order; the first one monitoring an instance serves it.
-	sources := []source.Source{prometheus.New(prometheusURL, kube)}
+	// Tried in order, after the sources the instance's dashboard has queries
+	// for; the first one monitoring an instance serves it.
+	sources := []source.Source{prometheus.New(prometheusURL, kube), pmm.New(kube)}
 	dashboards, err := dashboard.NewLoader(builtIn, os.Getenv("DASHBOARDS_FILE"), queryValidator(sources))
 	if err != nil {
 		log.Fatalf("dashboards: %v", err)

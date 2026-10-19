@@ -2,6 +2,7 @@ import { SourceReason, TimeRange } from 'types/metrics.types';
 
 const SOURCE_NAMES: Record<string, string> = {
   prometheus: 'Prometheus',
+  pmm: 'PMM',
 };
 
 const sourceName = (type: string) => SOURCE_NAMES[type] ?? type;

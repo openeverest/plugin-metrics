@@ -1,5 +1,5 @@
 // Package source defines how the plugin reads metrics from a monitoring system.
-// Each system (Prometheus today, PMM later) implements Source. Dashboards hold
+// Each system (Prometheus, PMM) implements Source. Dashboards hold
 // one query per source type, so adding a system needs no frontend change.
 package source
 
@@ -20,6 +20,9 @@ const (
 type Target struct {
 	Namespace string
 	Instance  string
+	// MonitoringConfig is the MonitoringConfig (in Namespace) the instance's
+	// monitoring component references, or empty when it references none.
+	MonitoringConfig string
 	// Scope is what the source's Status resolved for the target, e.g. its
 	// Prometheus scrape jobs. Callers copy it from Status so queries in the
 	// same request skip that lookup; when nil, the source resolves it again.

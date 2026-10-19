@@ -107,14 +107,36 @@ func (s *server) authorize(r *http.Request) (source.Target, *instance, error) {
 	if err != nil {
 		return source.Target{}, nil, err
 	}
-	return source.Target{Namespace: ref.namespace, Instance: ref.name}, in, nil
+	return source.Target{
+		Namespace:        ref.namespace,
+		Instance:         ref.name,
+		MonitoringConfig: in.Spec.Components.Monitoring.Parameters.MonitoringConfigName,
+	}, in, nil
 }
 
-// activeSource returns the first source monitoring the target, or the first
-// source's status so the UI can say why there is nothing to show.
-func (s *server) activeSource(ctx context.Context, target source.Target) (source.Source, source.Status, error) {
+// candidateSources orders the sources the provider's dashboard has queries
+// for first, keeping the configured order otherwise. An instance several
+// systems monitor then gets its dashboard, and an unmonitored one is told
+// about the system its dashboard expects.
+func (s *server) candidateSources(provider string) []source.Source {
+	d, _ := s.dashboards.Catalog().ForProvider(provider)
+	used, unused := []source.Source{}, []source.Source{}
+	for _, src := range s.sources {
+		if d.Uses(src.Type()) {
+			used = append(used, src)
+		} else {
+			unused = append(unused, src)
+		}
+	}
+	return append(used, unused...)
+}
+
+// activeSource returns the first candidate source monitoring the target, or
+// the first candidate's status so the UI can say why there is nothing to show.
+func (s *server) activeSource(ctx context.Context, target source.Target, provider string) (source.Source, source.Status, error) {
+	candidates := s.candidateSources(provider)
 	var first source.Status
-	for i, src := range s.sources {
+	for i, src := range candidates {
 		status, err := src.Status(ctx, target)
 		if err != nil {
 			log.Printf("%s status for %s/%s: %v", src.Type(), target.Namespace, target.Instance, err)
@@ -127,7 +149,7 @@ func (s *server) activeSource(ctx context.Context, target source.Target) (source
 			first = status
 		}
 	}
-	return s.sources[0], first, nil
+	return candidates[0], first, nil
 }
 
 // GET /api/dashboard?k8sCluster=&namespace=&instance=
@@ -137,7 +159,7 @@ func (s *server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	src, status, err := s.activeSource(r.Context(), target)
+	src, status, err := s.activeSource(r.Context(), target, in.Spec.ProviderRef.Name)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -167,7 +189,7 @@ func (s *server) handlePanel(w http.ResponseWriter, r *http.Request) {
 		writeError(w, err)
 		return
 	}
-	src, status, err := s.activeSource(r.Context(), target)
+	src, status, err := s.activeSource(r.Context(), target, in.Spec.ProviderRef.Name)
 	if err != nil {
 		writeError(w, err)
 		return
@@ -197,11 +219,11 @@ func (s *server) handlePanel(w http.ResponseWriter, r *http.Request) {
 
 // explorer returns the source monitoring the target if it can explore raw metrics.
 func (s *server) explorer(r *http.Request) (source.Explorer, source.Target, error) {
-	target, _, err := s.authorize(r)
+	target, in, err := s.authorize(r)
 	if err != nil {
 		return nil, target, err
 	}
-	src, status, err := s.activeSource(r.Context(), target)
+	src, status, err := s.activeSource(r.Context(), target, in.Spec.ProviderRef.Name)
 	if err != nil {
 		return nil, target, err
 	}

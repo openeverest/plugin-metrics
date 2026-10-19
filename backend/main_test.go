@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"path"
 	"testing"
 	"time"
 
@@ -18,13 +19,15 @@ import (
 type fakeSource struct {
 	typ     string
 	status  source.Status
+	targets []source.Target
 	queries []string
 	scopes  []any
 }
 
 func (f *fakeSource) Type() string { return f.typ }
 
-func (f *fakeSource) Status(context.Context, source.Target) (source.Status, error) {
+func (f *fakeSource) Status(_ context.Context, target source.Target) (source.Status, error) {
+	f.targets = append(f.targets, target)
 	return f.status, nil
 }
 
@@ -58,9 +61,19 @@ dashboards:
     panels:
       - {id: cpu, title: CPU, unit: cores, queries: {prometheus: prom-cpu, pmm: pmm-cpu}}
       - {id: pmm-only, title: PMM only, queries: {pmm: pmm-q}}
+  percona:
+    panels:
+      - {id: qps, title: QPS, queries: {pmm: pmm-qps}}
 `
 
-// newTestServer fakes the Everest API: only "allowed" may read the instance.
+// Instances the fake Everest API serves, by name.
+var testInstances = map[string]string{
+	"vectors": `{"spec":{"providerRef":{"name":"milvus"}}}`,
+	"orders": `{"spec":{"providerRef":{"name":"percona"},
+		"components":{"monitoring":{"parameters":{"monitoringConfigName":"pmm-prod"}}}}}`,
+}
+
+// newTestServer fakes the Everest API: only "allowed" may read the instances.
 func newTestServer(t *testing.T, sources ...source.Source) *httptest.Server {
 	t.Helper()
 	everest := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -68,7 +81,12 @@ func newTestServer(t *testing.T, sources ...source.Source) *httptest.Server {
 			w.WriteHeader(http.StatusForbidden)
 			return
 		}
-		_, _ = w.Write([]byte(`{"spec":{"providerRef":{"name":"milvus"}}}`))
+		body, ok := testInstances[path.Base(r.URL.Path)]
+		if !ok {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		_, _ = w.Write([]byte(body))
 	}))
 	t.Cleanup(everest.Close)
 
@@ -114,6 +132,37 @@ func TestDashboardExplainsWhyNothingIsMonitored(t *testing.T) {
 	var got dashboardResponse
 	require.Equal(t, http.StatusOK, get(t, srv.URL+"/api/dashboard"+instanceQuery, "allowed", &got))
 	assert.Equal(t, source.ReasonNotEnabled, got.Source.Reason)
+	assert.Empty(t, got.Panels)
+}
+
+const pmmInstanceQuery = "?namespace=db&instance=orders"
+
+func TestDashboardPrefersTheSourceItsPanelsUse(t *testing.T) {
+	prom := &fakeSource{typ: "prometheus", status: source.Status{Enabled: true}}
+	pmm := &fakeSource{typ: "pmm", status: source.Status{Enabled: true}}
+	srv := newTestServer(t, prom, pmm)
+
+	var got dashboardResponse
+	require.Equal(t, http.StatusOK, get(t, srv.URL+"/api/dashboard"+pmmInstanceQuery, "allowed", &got))
+	assert.Equal(t, "pmm", got.Source.Type)
+	assert.Equal(t, []panelInfo{{ID: "qps", Title: "QPS"}}, got.Panels)
+	assert.Empty(t, prom.targets, "a source the dashboard has no queries for is only a fallback")
+	assert.Equal(t, []source.Target{{Namespace: "db", Instance: "orders", MonitoringConfig: "pmm-prod"}}, pmm.targets,
+		"sources learn the MonitoringConfig the instance references")
+
+	require.Equal(t, http.StatusOK, get(t, srv.URL+"/api/dashboard"+instanceQuery, "allowed", &got))
+	assert.Equal(t, "prometheus", got.Source.Type, "sources the dashboard uses keep the configured order")
+}
+
+func TestDashboardExplainsWhyTheExpectedSourceIsOff(t *testing.T) {
+	srv := newTestServer(t,
+		&fakeSource{typ: "prometheus", status: source.Status{Reason: source.ReasonNotEnabled}},
+		&fakeSource{typ: "pmm", status: source.Status{Reason: source.ReasonUnavailable}},
+	)
+
+	var got dashboardResponse
+	require.Equal(t, http.StatusOK, get(t, srv.URL+"/api/dashboard"+pmmInstanceQuery, "allowed", &got))
+	assert.Equal(t, sourceInfo{Type: "pmm", Status: source.Status{Reason: source.ReasonUnavailable}}, got.Source)
 	assert.Empty(t, got.Panels)
 }
 
