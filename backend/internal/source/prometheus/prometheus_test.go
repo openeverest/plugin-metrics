@@ -37,9 +37,11 @@ var instanceLabels = map[string]string{"app.kubernetes.io/managed-by": "everest"
 func fakeKube(objects ...runtime.Object) *dynamicfake.FakeDynamicClient {
 	return dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(),
 		map[schema.GroupVersionResource]string{
-			podMonitorGVR:     "PodMonitorList",
-			serviceMonitorGVR: "ServiceMonitorList",
-			serviceGVR:        "ServiceList",
+			podMonitorGVR:      "PodMonitorList",
+			serviceMonitorGVR:  "ServiceMonitorList",
+			serviceGVR:         "ServiceList",
+			vmPodScrapeGVR:     "VMPodScrapeList",
+			vmServiceScrapeGVR: "VMServiceScrapeList",
 		}, objects...)
 }
 
@@ -63,7 +65,7 @@ func TestStatus(t *testing.T) {
 
 	t.Run("unavailable without the Prometheus Operator", func(t *testing.T) {
 		kube := fakeKube()
-		for _, gvr := range []schema.GroupVersionResource{podMonitorGVR, serviceMonitorGVR} {
+		for _, gvr := range []schema.GroupVersionResource{podMonitorGVR, serviceMonitorGVR, vmPodScrapeGVR, vmServiceScrapeGVR} {
 			kube.PrependReactor("list", gvr.Resource, func(clienttesting.Action) (bool, runtime.Object, error) {
 				return true, nil, apierrors.NewNotFound(gvr.GroupResource(), "")
 			})
