@@ -19,6 +19,10 @@ rules:
   - apiGroups: ["monitoring.coreos.com"]
     resources: ["podmonitors", "servicemonitors"]
     verbs: ["list"]
+  # VictoriaMetrics operator's equivalents, for providers that target it instead.
+  - apiGroups: ["operator.victoriametrics.com"]
+    resources: ["vmpodscrapes", "vmservicescrapes"]
+    verbs: ["list"]
   # A ServiceMonitor's scrape jobs are named after the Services it selects.
   - apiGroups: [""]
     resources: ["services"]

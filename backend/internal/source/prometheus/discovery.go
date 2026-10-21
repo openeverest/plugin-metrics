@@ -19,6 +19,22 @@ var (
 	podMonitorGVR     = schema.GroupVersionResource{Group: "monitoring.coreos.com", Version: "v1", Resource: "podmonitors"}
 	serviceMonitorGVR = schema.GroupVersionResource{Group: "monitoring.coreos.com", Version: "v1", Resource: "servicemonitors"}
 	serviceGVR        = schema.GroupVersionResource{Version: "v1", Resource: "services"}
+
+	// VictoriaMetrics operator mirrors the Prometheus Operator's PodMonitor
+	// and ServiceMonitor with its own VMPodScrape and VMServiceScrape CRDs,
+	// using the same spec.jobLabel/spec.selector shape. Providers that target
+	// VictoriaMetrics (e.g. taking over the converted VMServiceScrape) label
+	// these the same way, so they are discovered alongside the Prometheus
+	// Operator kinds.
+	vmPodScrapeGVR     = schema.GroupVersionResource{Group: "operator.victoriametrics.com", Version: "v1beta1", Resource: "vmpodscrapes"}
+	vmServiceScrapeGVR = schema.GroupVersionResource{Group: "operator.victoriametrics.com", Version: "v1beta1", Resource: "vmservicescrapes"}
+)
+
+// podMonitorKinds and serviceMonitorKinds are the PodMonitor-shaped and
+// ServiceMonitor-shaped CRDs this source reads jobs from.
+var (
+	podMonitorKinds     = []schema.GroupVersionResource{podMonitorGVR, vmPodScrapeGVR}
+	serviceMonitorKinds = []schema.GroupVersionResource{serviceMonitorGVR, vmServiceScrapeGVR}
 )
 
 // instanceSelectors find an instance's monitors by either convention: monitors
@@ -37,33 +53,50 @@ type monitorSpec struct {
 	Selector metav1.LabelSelector `json:"selector"`
 }
 
-// jobs returns the scrape jobs of the instance's PodMonitors and
-// ServiceMonitors, named the way the Prometheus Operator names them.
+// jobs returns the scrape jobs of the instance's PodMonitors/VMPodScrapes and
+// ServiceMonitors/VMServiceScrapes, named the way the Prometheus Operator
+// names them (VictoriaMetrics operator's converted/mirrored CRDs share the
+// same naming).
 func (s *Source) jobs(ctx context.Context, target source.Target) ([]string, error) {
-	podMonitors, podErr := s.monitors(ctx, podMonitorGVR, target)
-	serviceMonitors, serviceErr := s.monitors(ctx, serviceMonitorGVR, target)
-	if apierrors.IsNotFound(podErr) && apierrors.IsNotFound(serviceErr) {
-		return nil, errOperatorMissing
-	}
-	for _, err := range []error{podErr, serviceErr} {
-		if err != nil && !apierrors.IsNotFound(err) {
-			return nil, err
-		}
-	}
-
+	notFound := 0
 	jobs := map[string]bool{}
-	for _, monitor := range podMonitors {
-		// A PodMonitor's job is <namespace>/<name>; providers do not set spec.jobLabel.
-		jobs[monitor.GetNamespace()+"/"+monitor.GetName()] = true
-	}
-	for _, monitor := range serviceMonitors {
-		names, err := s.serviceMonitorJobs(ctx, monitor)
+
+	for _, gvr := range podMonitorKinds {
+		monitors, err := s.monitors(ctx, gvr, target)
+		if apierrors.IsNotFound(err) {
+			notFound++
+			continue
+		}
 		if err != nil {
 			return nil, err
 		}
-		for _, name := range names {
-			jobs[name] = true
+		for _, monitor := range monitors {
+			// A PodMonitor's job is <namespace>/<name>; providers do not set spec.jobLabel.
+			jobs[monitor.GetNamespace()+"/"+monitor.GetName()] = true
 		}
+	}
+	for _, gvr := range serviceMonitorKinds {
+		monitors, err := s.monitors(ctx, gvr, target)
+		if apierrors.IsNotFound(err) {
+			notFound++
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		for _, monitor := range monitors {
+			names, err := s.serviceMonitorJobs(ctx, monitor)
+			if err != nil {
+				return nil, err
+			}
+			for _, name := range names {
+				jobs[name] = true
+			}
+		}
+	}
+
+	if notFound == len(podMonitorKinds)+len(serviceMonitorKinds) {
+		return nil, errOperatorMissing
 	}
 	return slices.Sorted(maps.Keys(jobs)), nil
 }

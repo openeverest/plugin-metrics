@@ -7,6 +7,8 @@ import (
 	"github.com/stretchr/testify/assert"
 	"github.com/stretchr/testify/require"
 	"k8s.io/apimachinery/pkg/apis/meta/v1/unstructured"
+
+	"github.com/openeverest/plugin-metrics/backend/internal/source"
 )
 
 func object(apiVersion, kind, name string, labels map[string]string, spec map[string]any) *unstructured.Unstructured {
@@ -72,4 +74,29 @@ func TestServiceMonitorsAloneEnableMonitoring(t *testing.T) {
 	status, err := New("http://prometheus", kube).Status(context.Background(), target)
 	require.NoError(t, err)
 	assert.True(t, status.Enabled)
+}
+
+func vmServiceScrape(name string, labels map[string]string, spec map[string]any) *unstructured.Unstructured {
+	return object("operator.victoriametrics.com/v1beta1", "VMServiceScrape", name, labels, spec)
+}
+
+// A provider targeting VictoriaMetrics takes ownership of the VMServiceScrape
+// converted from the operator's own ServiceMonitor, stamping it with the
+// instance labels the plain ServiceMonitor never gets (it only carries
+// whatever label is needed to satisfy its Prometheus's serviceMonitorSelector,
+// e.g. "release"). The VMServiceScrape is therefore the only monitor the
+// everest-labels convention can match in a VictoriaMetrics-only environment.
+func TestVMServiceScrapesAloneEnableMonitoring(t *testing.T) {
+	kube := fakeKube(
+		serviceMonitor("vectors-metrics", map[string]string{"release": "kube-prometheus-stack"}, map[string]any{
+			"selector": map[string]any{"matchLabels": map[string]any{"app": "exporter"}},
+		}),
+		vmServiceScrape("vectors-metrics", openEverestInstanceLabel, map[string]any{
+			"selector": map[string]any{"matchLabels": map[string]any{"app": "exporter"}},
+		}),
+		service("vectors-exporter", map[string]string{"app": "exporter"}),
+	)
+	status, err := New("http://prometheus", kube).Status(context.Background(), target)
+	require.NoError(t, err)
+	assert.Equal(t, source.Status{Enabled: true, Scope: scope{jobs: []string{"vectors-exporter"}}}, status)
 }
