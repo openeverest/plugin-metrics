@@ -26,10 +26,9 @@ func (s *Source) ListMetrics(ctx context.Context, target source.Target) ([]sourc
 	if err := s.api.GetJSON(ctx, "/api/v1/label/__name__/values", url.Values{"match[]": {match}}, &names); err != nil {
 		return nil, err
 	}
+	// Metadata only adds types and help; VictoriaMetrics doesn't serve it, so list untyped names.
 	var metadata []promapi.Metadata
-	if err := s.api.GetJSON(ctx, "/api/v1/targets/metadata", url.Values{"match_target": {match}}, &metadata); err != nil {
-		return nil, err
-	}
+	_ = s.api.GetJSON(ctx, "/api/v1/targets/metadata", url.Values{"match_target": {match}}, &metadata)
 	return promapi.Catalog(names, metadata), nil
 }
 

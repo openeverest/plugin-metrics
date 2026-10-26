@@ -34,6 +34,22 @@ func TestListMetricsIsScopedToTheInstance(t *testing.T) {
 	assert.Equal(t, []string{scope, scope}, matches)
 }
 
+func TestListMetricsWithoutTargetMetadata(t *testing.T) {
+	// VictoriaMetrics serves label values but not /api/v1/targets/metadata.
+	prom := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/api/v1/label/__name__/values" {
+			w.WriteHeader(http.StatusBadRequest)
+			return
+		}
+		_, _ = w.Write([]byte(`{"status":"success","data":["process_open_fds"]}`))
+	}))
+	defer prom.Close()
+
+	metrics, err := New(prom.URL, fakeKube(podMonitor("vectors-metrics", instanceLabels))).ListMetrics(context.Background(), target)
+	require.NoError(t, err)
+	assert.Equal(t, []source.Metric{{Name: "process_open_fds", Type: source.MetricUnknown}}, metrics)
+}
+
 func TestExploreMetricRunsTheScopedQuery(t *testing.T) {
 	var gotQuery string
 	prom := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
