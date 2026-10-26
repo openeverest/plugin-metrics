@@ -33,6 +33,7 @@ plugin:
         - mssql
         - provider-cassandra
         - provider-cloudnative-pg
+        - provider-seaweedfs
         - tidb
         - percona-server-mongodb
         - provider-percona-postgresql
