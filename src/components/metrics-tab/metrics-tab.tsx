@@ -6,6 +6,7 @@ import { useDashboard } from 'hooks/useDashboard';
 import { TimeRange } from 'types/metrics.types';
 import { DEFAULT_TIME_RANGE, PANEL_GRID_SX, TIME_RANGES } from './metrics-tab.constants';
 import { Messages } from './metrics-tab.messages';
+import { dashboardNotice, panelCaption } from './metrics-tab.utils';
 
 interface MetricsTabProps {
   namespace: string;
@@ -33,38 +34,42 @@ export const MetricsTab = ({ namespace, instanceName }: MetricsTabProps) => {
   }
 
   const { source, panels } = dashboard;
-  if (!source.enabled) {
+  const notice = dashboardNotice(dashboard);
+  const explorable = source.enabled && source.explorable;
+  if (panels.length === 0 && !explorable) {
     return (
       <Alert severity="info" sx={{ mt: 2 }}>
-        {Messages.sourceUnavailable[source.reason ?? 'notEnabled'](source.type)}
-      </Alert>
-    );
-  }
-  if (panels.length === 0 && !source.explorable) {
-    return (
-      <Alert severity="info" sx={{ mt: 2 }}>
-        {Messages.noDashboard}
+        {notice}
       </Alert>
     );
   }
 
   return (
     <Stack sx={{ gap: 2, mt: 2 }}>
+      {notice && <Alert severity="info">{notice}</Alert>}
       <Stack direction="row" sx={{ alignItems: 'center', justifyContent: 'space-between' }}>
         <Tabs value={range} onChange={(_, value: TimeRange) => setRange(value)}>
           {TIME_RANGES.map((r) => (
             <Tab key={r} value={r} label={Messages.timeRanges[r]} />
           ))}
         </Tabs>
-        <Typography variant="caption" color="text.secondary">
-          {Messages.source(source.type)}
-        </Typography>
+        {source.enabled && (
+          <Typography variant="caption" color="text.secondary">
+            {Messages.source(source.type)}
+          </Typography>
+        )}
       </Stack>
-      {source.explorable && <MetricExplorer target={target} range={range} />}
+      {explorable && <MetricExplorer target={target} range={range} />}
       {panels.length > 0 && (
         <Box sx={PANEL_GRID_SX}>
           {panels.map((panel) => (
-            <MetricPanel key={panel.id} target={target} panel={panel} range={range} />
+            <MetricPanel
+              key={panel.id}
+              target={target}
+              panel={panel}
+              caption={panelCaption(panel, source)}
+              range={range}
+            />
           ))}
         </Box>
       )}

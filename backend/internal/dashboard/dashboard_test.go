@@ -18,7 +18,7 @@ func TestBuiltInScopesEveryQuery(t *testing.T) {
 	} {
 		d, ok := catalog.ForProvider(provider)
 		require.True(t, ok, "no built-in dashboard for %s", provider)
-		assert.Len(t, d.Panels, 6, provider)
+		assert.NotEmpty(t, d.Panels, provider)
 	}
 	for provider, d := range catalog.Dashboards {
 		for _, panel := range d.Panels {
@@ -62,6 +62,11 @@ dashboards:
   x:
     panels:
       - {id: a, title: A, querys: {prometheus: q}}`,
+		"reserved id": `
+dashboards:
+  x:
+    panels:
+      - {id: pod-cpu, title: A, queries: {prometheus: q}}`,
 	}
 	for name, yaml := range tests {
 		t.Run(name, func(t *testing.T) {

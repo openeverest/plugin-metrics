@@ -77,6 +77,24 @@ Adding another system means adding a `Source` and its queries to the panels
 that support it. The frontend renders whatever series it gets back and
 doesn't change.
 
+### Pod CPU and memory
+
+Every dashboard starts with **CPU usage** and **Memory usage** of the
+instance's pods, whichever source serves the engine's panels and even when the
+instance has no monitoring enabled. They come from the container metrics
+(cAdvisor) the cluster's Prometheus scrapes from every kubelet:
+
+- `sum by (pod) (rate(container_cpu_usage_seconds_total[...]))` and
+  `sum by (pod) (container_memory_working_set_bytes)`, one line per pod.
+- Queries are scoped to the instance's namespace and the pods labelled
+  `core.openeverest.io/instance=<name>` now, so a pod replaced within the time
+  range shows only under its current name.
+- A dashed **limit** line shows the sum of each pod's container limits
+  (containers without a limit add nothing): one line when all pods share it,
+  otherwise one per `core.openeverest.io/component`, or per pod.
+- The panels are left out when Prometheus is unreachable or has no container
+  metrics for the pods; the rest of the dashboard is unaffected.
+
 ### Dashboards
 
 Panels are data, keyed by provider, in
@@ -86,16 +104,16 @@ Panels are data, keyed by provider, in
 dashboards:
   milvus:
     panels:
-      - id: cpu
-        title: CPU usage by component
-        unit: cores            # cores, bytes, Bps, ops (per second), ms, or empty
+      - id: vectors
+        title: Vectors inserted per second
+        unit: ops              # cores, bytes, Bps, ops (per second), ms, or empty
         queries:
           prometheus: >-
-            sum by (core_openeverest_io_component) (rate(process_cpu_seconds_total{${selector}}[${rate}]))
+            sum(rate(milvus_proxy_insert_vectors_count{${selector}}[${rate}]))
 ```
 
 `${rate}` is a `rate()` window matched to the selected time range. Each series
-is named after the labels the query keeps (here, the component). A panel may
+is named after the labels the query keeps, e.g. the pod. A panel may
 hold a query per source, e.g. `prometheus:` and `pmm:`, and is shown for
 whichever source monitors the instance.
 
@@ -103,7 +121,7 @@ Built-in dashboards:
 
 | Provider | Panels |
 |---|---|
-| `milvus` | Requests/s, search/query latency p99, vectors inserted/s, collections, CPU and memory by component |
+| `milvus` | Requests/s, search/query latency p99, vectors inserted/s, collections |
 | `valkey` | Commands/s, keyspace hit ratio, connected clients, memory, keys and network traffic by shard |
 | `mariadb` | Queries/s, slow queries/s, connections, running threads, InnoDB buffer pool hit ratio, network traffic |
 | `mssql` | Batch requests/s, transactions/s, user connections, buffer cache hit ratio, server memory, database size |
@@ -157,6 +175,7 @@ or point `dashboards.existingConfigMap` at a ConfigMap you manage yourself
 - A provider's dashboard replaces its built-in one as a whole; `{panels: []}`
   hides it (the metric search stays available).
 - Edits to the ConfigMap apply within about a minute, without a restart.
+- Panel ids starting with `pod-` are reserved for the pod CPU and memory panels.
 - Every query must use `${selector}`. A file with an invalid
   dashboard or an unscoped query is rejected as a whole: the plugin keeps the
   last good dashboards and logs why.
@@ -170,6 +189,9 @@ or point `dashboards.existingConfigMap` at a ConfigMap you manage yourself
   Milvus provider's `podMonitorLabels`).
 - Prometheus monitoring enabled on the instance (for Milvus, the
   *Monitoring → Prometheus* toggle).
+- For pod CPU and memory: a Prometheus at `prometheus.url` that scrapes the
+  kubelets' cAdvisor endpoint, as kube-prometheus-stack does by default. The
+  plugin lists pods in every namespace to scope the queries and read limits.
 - For PMM: PMM 3 and a provider that labels the series it pushes to PMM with
   the instance (Percona providers for MongoDB, PostgreSQL and XtraDB Cluster),
   with monitoring enabled on the instance through a `MonitoringConfig`. The
@@ -199,7 +221,7 @@ Served under `/v1/clusters/{cluster}/plugins/plugin-metrics` by everest-server.
 | Endpoint | Returns |
 |---|---|
 | `GET /api/dashboard?namespace=&instance=` | The active source and its status, and the panels it can fill |
-| `GET /api/panels/{id}?namespace=&instance=&range=1h\|24h` | The panel's series |
+| `GET /api/panels/{id}?namespace=&instance=&range=1h\|24h` | The panel's series; limit lines have `kind: limit` |
 | `GET /api/metrics?namespace=&instance=` | The instance's raw metrics with type and description (explorer sources only) |
 | `GET /api/explore?namespace=&instance=&metric=&type=&range=` | One raw metric charted by type: counters as a per-second rate, histograms as p99, summaries as the average, gauges as is |
 

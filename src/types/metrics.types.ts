@@ -16,6 +16,8 @@ export interface PanelInfo {
   id: string;
   title: string;
   unit: MetricUnit;
+  /** Set when the panel is read from another source than the dashboard's. */
+  source?: string;
 }
 
 export interface Dashboard {
@@ -30,8 +32,12 @@ export interface MetricPoint {
   v: number | null;
 }
 
+/** A limit is drawn as a reference line rather than as a measurement. */
+export type SeriesKind = 'limit';
+
 export interface MetricSeries {
   name: string;
+  kind?: SeriesKind;
   points: MetricPoint[];
 }
 

@@ -150,18 +150,6 @@ dashboards:
         queries:
           prometheus: >-
             max(milvus_rootcoord_collection_num{${selector}})
-      - id: cpu
-        title: CPU usage by component
-        unit: cores
-        queries:
-          prometheus: >-
-            sum by (core_openeverest_io_component) (rate(process_cpu_seconds_total{${selector}}[${rate}]))
-      - id: memory
-        title: Memory usage by component
-        unit: bytes
-        queries:
-          prometheus: >-
-            sum by (core_openeverest_io_component) (process_resident_memory_bytes{${selector}})
 
   # mongodb_exporter of the PMM client in every mongod and mongos pod.
   percona-server-mongodb:

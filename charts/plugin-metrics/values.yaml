@@ -24,7 +24,8 @@ plugin:
     - type: clusterDetailTab
       path: metrics
       label: Metrics
-      # Providers with a built-in dashboard; others would only see an empty tab.
+      # Providers with a built-in dashboard. Others would see only pod CPU and
+      # memory, which every provider gets.
       providers:
         - milvus
         - valkey

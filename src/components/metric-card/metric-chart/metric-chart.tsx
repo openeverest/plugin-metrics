@@ -3,7 +3,13 @@ import { useTheme } from '@mui/material';
 import { chartsGridClasses } from '@mui/x-charts/ChartsGrid';
 import { LineChart, lineClasses } from '@mui/x-charts/LineChart';
 import { MetricUnit } from 'types/metrics.types';
-import { AREA_OPACITY, CHART_HEIGHT, MAX_SERIES_FOR_STRONG_FILL, Y_TICK_COUNT } from '../metric-card.constants';
+import {
+  AREA_OPACITY,
+  CHART_HEIGHT,
+  LIMIT_LINE_DASH,
+  MAX_SERIES_FOR_STRONG_FILL,
+  Y_TICK_COUNT,
+} from '../metric-card.constants';
 import { byteTicks, ChartData, formatTime, formatValue, seriesMax } from '../metric-card.utils';
 
 interface MetricChartProps {
@@ -18,14 +24,18 @@ export const MetricChart = ({ chart, unit }: MetricChartProps) => {
   const ticks = unit === 'bytes' ? byteTicks(seriesMax(chart.series)) : undefined;
   const tickLabelStyle = { fontSize: 11, fill: theme.palette.text.secondary };
   const formatSample = (value: number | null) => (value === null ? '' : formatValue(value, unit));
-  const areaOpacity =
-    chart.series.length > MAX_SERIES_FOR_STRONG_FILL ? AREA_OPACITY.many : AREA_OPACITY.few;
+  const filledCount = chart.series.filter((s) => !s.isLimit).length;
+  const areaOpacity = filledCount > MAX_SERIES_FOR_STRONG_FILL ? AREA_OPACITY.many : AREA_OPACITY.few;
 
-  const seriesFills = Object.fromEntries(
-    chart.series.map((_, i) => [
-      `& .${lineClasses.area}[data-series="s${i}"]`,
-      { fill: `url(#${gradientPrefix}-${i})` },
-    ])
+  const seriesStyles = Object.fromEntries(
+    chart.series.map((s, i) =>
+      s.isLimit
+        ? [
+            `& .${lineClasses.line}[data-series="s${i}"]`,
+            { strokeDasharray: LIMIT_LINE_DASH, strokeWidth: 1.5 },
+          ]
+        : [`& .${lineClasses.area}[data-series="s${i}"]`, { fill: `url(#${gradientPrefix}-${i})` }]
+    )
   );
 
   return (
@@ -64,7 +74,7 @@ export const MetricChart = ({ chart, unit }: MetricChartProps) => {
         label: s.label,
         data: s.data,
         color: s.color,
-        area: true,
+        area: !s.isLimit,
         curve: 'monotoneX',
         showMark: false,
         valueFormatter: formatSample,
@@ -76,7 +86,7 @@ export const MetricChart = ({ chart, unit }: MetricChartProps) => {
           stroke: theme.palette.divider,
           strokeDasharray: '3 4',
         },
-        ...seriesFills,
+        ...seriesStyles,
       }}
     >
       <defs>

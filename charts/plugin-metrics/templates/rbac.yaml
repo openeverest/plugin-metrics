@@ -7,7 +7,7 @@ metadata:
     {{- include "plugin-metrics.labels" . | nindent 4 }}
 ---
 # Cluster-wide because database namespaces are created dynamically. Read-only;
-# the backend only looks up monitors and PMM credentials of instances the
+# the backend only looks up monitors, pods and PMM credentials of instances the
 # caller can read via the Everest API.
 apiVersion: rbac.authorization.k8s.io/v1
 kind: ClusterRole
@@ -26,6 +26,10 @@ rules:
   # A ServiceMonitor's scrape jobs are named after the Services it selects.
   - apiGroups: [""]
     resources: ["services"]
+    verbs: ["list"]
+  # The instance's pods scope its CPU and memory charts and give their limits.
+  - apiGroups: [""]
+    resources: ["pods"]
     verbs: ["list"]
   # PMM: the MonitoringConfig an instance references and the Secret with its
   # PMM token, read only for instances the caller can read.

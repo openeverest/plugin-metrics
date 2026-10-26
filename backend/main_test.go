@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"path"
@@ -13,6 +14,7 @@ import (
 	"github.com/stretchr/testify/require"
 
 	"github.com/openeverest/plugin-metrics/backend/internal/dashboard"
+	"github.com/openeverest/plugin-metrics/backend/internal/resources"
 	"github.com/openeverest/plugin-metrics/backend/internal/source"
 )
 
@@ -55,6 +57,26 @@ func (f *fakeExplorer) ExploreMetric(_ context.Context, target source.Target, me
 	return source.Exploration{Unit: "bytes"}, nil
 }
 
+type fakeResources struct {
+	panels  []resources.Panel
+	err     error
+	queried []string
+}
+
+func (f *fakeResources) Panels(context.Context, source.Target) ([]resources.Panel, error) {
+	return f.panels, f.err
+}
+
+func (f *fakeResources) QueryRange(_ context.Context, _ source.Target, panelID string, _ source.Window) ([]source.Series, error) {
+	f.queried = append(f.queried, panelID)
+	if panelID != "pod-cpu" {
+		return nil, resources.ErrUnknownPanel
+	}
+	return []source.Series{{Name: "vectors-0"}, {Name: "limit", Kind: source.SeriesLimit}}, nil
+}
+
+var podCPU = resources.Panel{ID: "pod-cpu", Title: "CPU usage", Unit: "cores"}
+
 const testCatalog = `
 dashboards:
   milvus:
@@ -76,6 +98,11 @@ var testInstances = map[string]string{
 // newTestServer fakes the Everest API: only "allowed" may read the instances.
 func newTestServer(t *testing.T, sources ...source.Source) *httptest.Server {
 	t.Helper()
+	return newTestServerWithResources(t, nil, sources...)
+}
+
+func newTestServerWithResources(t *testing.T, usage resourceUsage, sources ...source.Source) *httptest.Server {
+	t.Helper()
 	everest := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.Header.Get("Authorization") != "Bearer allowed" {
 			w.WriteHeader(http.StatusForbidden)
@@ -94,7 +121,7 @@ func newTestServer(t *testing.T, sources ...source.Source) *httptest.Server {
 	require.NoError(t, err)
 	dashboards, err := dashboard.NewLoader(catalog, "", queryValidator(sources))
 	require.NoError(t, err)
-	srv := httptest.NewServer(newMux(&server{everest: newEverestClient(everest.URL), dashboards: dashboards, sources: sources}))
+	srv := httptest.NewServer(newMux(&server{everest: newEverestClient(everest.URL), dashboards: dashboards, sources: sources, resources: usage}))
 	t.Cleanup(srv.Close)
 	return srv
 }
@@ -186,6 +213,52 @@ func TestPanelRequiresAccessToTheInstance(t *testing.T) {
 
 	assert.Equal(t, http.StatusForbidden, get(t, srv.URL+"/api/panels/cpu"+instanceQuery+"&range=1h", "denied", nil))
 	assert.Empty(t, prom.queries, "no query may run for a user who cannot read the instance")
+}
+
+func TestDashboardStartsWithPodResources(t *testing.T) {
+	usage := &fakeResources{panels: []resources.Panel{podCPU}}
+	srv := newTestServerWithResources(t, usage, &fakeSource{typ: "pmm", status: source.Status{Enabled: true}})
+
+	var got dashboardResponse
+	require.Equal(t, http.StatusOK, get(t, srv.URL+"/api/dashboard"+instanceQuery, "allowed", &got))
+	assert.Equal(t, []panelInfo{
+		{ID: "pod-cpu", Title: "CPU usage", Unit: "cores", Source: "prometheus"},
+		{ID: "cpu", Title: "CPU", Unit: "cores"},
+		{ID: "pmm-only", Title: "PMM only"},
+	}, got.Panels)
+}
+
+func TestPodResourcesNeedNoMonitoringSource(t *testing.T) {
+	usage := &fakeResources{panels: []resources.Panel{podCPU}}
+	notMonitoring := &fakeSource{typ: "prometheus", status: source.Status{Reason: source.ReasonNotEnabled}}
+	srv := newTestServerWithResources(t, usage, notMonitoring)
+
+	var dashboard dashboardResponse
+	require.Equal(t, http.StatusOK, get(t, srv.URL+"/api/dashboard"+instanceQuery, "allowed", &dashboard))
+	assert.Equal(t, source.ReasonNotEnabled, dashboard.Source.Reason)
+	assert.Equal(t, []panelInfo{{ID: "pod-cpu", Title: "CPU usage", Unit: "cores", Source: "prometheus"}}, dashboard.Panels)
+
+	var got panelDataResponse
+	require.Equal(t, http.StatusOK, get(t, srv.URL+"/api/panels/pod-cpu"+instanceQuery+"&range=1h", "allowed", &got))
+	assert.Equal(t, []source.Series{{Name: "vectors-0"}, {Name: "limit", Kind: source.SeriesLimit}}, got.Series)
+	assert.Empty(t, notMonitoring.queries)
+
+	assert.Equal(t, http.StatusNotFound, get(t, srv.URL+"/api/panels/pod-disk"+instanceQuery+"&range=1h", "allowed", nil))
+	assert.Equal(t, http.StatusForbidden, get(t, srv.URL+"/api/panels/pod-cpu"+instanceQuery+"&range=1h", "denied", nil))
+	assert.Equal(t, []string{"pod-cpu", "pod-disk"}, usage.queried, "no query may run for a user who cannot read the instance")
+}
+
+func TestDashboardWithoutPodResources(t *testing.T) {
+	prom := &fakeSource{typ: "prometheus", status: source.Status{Enabled: true}}
+	srv := newTestServerWithResources(t, &fakeResources{err: errors.New("prometheus unreachable")}, prom)
+
+	var got dashboardResponse
+	require.Equal(t, http.StatusOK, get(t, srv.URL+"/api/dashboard"+instanceQuery, "allowed", &got),
+		"pod resources failing must not fail the dashboard")
+	assert.Equal(t, []panelInfo{{ID: "cpu", Title: "CPU", Unit: "cores"}}, got.Panels)
+
+	srv = newTestServer(t, prom)
+	assert.Equal(t, http.StatusNotFound, get(t, srv.URL+"/api/panels/pod-cpu"+instanceQuery+"&range=1h", "allowed", nil))
 }
 
 func TestExploreChartsAPickedMetric(t *testing.T) {
