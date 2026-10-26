@@ -50,9 +50,15 @@ type Point struct {
 	V *float64 `json:"v"`
 }
 
+// SeriesLimit marks a series as a limit, drawn as a reference line rather
+// than as a measurement.
+const SeriesLimit = "limit"
+
 // Series is one line on a chart.
 type Series struct {
-	Name   string  `json:"name"`
+	Name string `json:"name"`
+	// Kind is empty for measurements, or SeriesLimit.
+	Kind   string  `json:"kind,omitempty"`
 	Points []Point `json:"points"`
 }
 

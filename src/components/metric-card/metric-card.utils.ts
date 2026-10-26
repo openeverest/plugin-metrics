@@ -8,6 +8,8 @@ export interface ChartSeries {
   data: (number | null)[];
   /** The most recent non-null sample, shown in the legend. */
   latest: number | null;
+  /** Drawn as a dashed reference line, e.g. a resource limit. */
+  isLimit: boolean;
 }
 
 export interface ChartData {
@@ -26,23 +28,37 @@ const latestValue = (data: (number | null)[]) => {
 };
 
 // The chart needs one shared x axis; a series is null where it has no sample.
-export const toChartData = (series: MetricSeries[], fallbackLabel: string): ChartData => {
+// Measurements take the palette colors in order; limits all take limitColor.
+export const toChartData = (
+  series: MetricSeries[],
+  fallbackLabel: string,
+  limitColor: string
+): ChartData => {
   const times = [...new Set(series.flatMap((s) => s.points.map((p) => p.t)))].sort(
     (a, b) => a - b
   );
+  let measurementIndex = 0;
   return {
     timestamps: times.map((t) => new Date(t)),
-    series: series.map((s, i) => {
+    series: series.map((s) => {
       const valueAt = new Map(s.points.map((p) => [p.t, p.v]));
       const data = times.map((t) => valueAt.get(t) ?? null);
+      const isLimit = s.kind === 'limit';
       return {
         label: s.name || fallbackLabel,
-        color: SERIES_COLORS[i % SERIES_COLORS.length],
+        color: isLimit ? limitColor : SERIES_COLORS[measurementIndex++ % SERIES_COLORS.length],
         data,
         latest: latestValue(data),
+        isLimit,
       };
     }),
   };
+};
+
+/** The only measured series, whose latest value headlines the card; null when there are several. */
+export const headlineSeries = (chart: ChartData): ChartSeries | null => {
+  const measurements = chart.series.filter((s) => !s.isLimit);
+  return measurements.length === 1 ? measurements[0] : null;
 };
 
 // Rounds a step up to 1, 2, 2.5 or 5 times a power of ten.

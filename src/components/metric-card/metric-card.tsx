@@ -1,10 +1,10 @@
 import { ReactNode, useMemo } from 'react';
-import { Alert, Paper, Skeleton, Stack, Typography } from '@mui/material';
+import { Alert, Paper, Skeleton, Stack, Typography, useTheme } from '@mui/material';
 import { MetricSeries, MetricUnit } from 'types/metrics.types';
 import { MetricChart } from './metric-chart/metric-chart';
 import { CHART_HEIGHT } from './metric-card.constants';
 import { Messages } from './metric-card.messages';
-import { formatValue, toChartData } from './metric-card.utils';
+import { formatValue, headlineSeries, toChartData } from './metric-card.utils';
 import { SeriesLegend } from './series-legend/series-legend';
 
 interface MetricCardProps {
@@ -18,8 +18,13 @@ interface MetricCardProps {
 }
 
 export const MetricCard = ({ title, caption, unit, series, isLoading, error, action }: MetricCardProps) => {
-  const chart = useMemo(() => toChartData(series ?? [], title), [series, title]);
-  const single = chart.series.length === 1 ? chart.series[0] : null;
+  const theme = useTheme();
+  const limitColor = theme.palette.text.secondary;
+  const chart = useMemo(
+    () => toChartData(series ?? [], title, limitColor),
+    [series, title, limitColor]
+  );
+  const single = headlineSeries(chart);
 
   const body = () => {
     if (isLoading) {
@@ -40,7 +45,7 @@ export const MetricCard = ({ title, caption, unit, series, isLoading, error, act
     return (
       <>
         <MetricChart chart={chart} unit={unit} />
-        {!single && <SeriesLegend series={chart.series} unit={unit} />}
+        {chart.series.length > 1 && <SeriesLegend series={chart.series} unit={unit} />}
       </>
     );
   };

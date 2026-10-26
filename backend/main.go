@@ -16,6 +16,7 @@ import (
 	"k8s.io/client-go/tools/clientcmd"
 
 	"github.com/openeverest/plugin-metrics/backend/internal/dashboard"
+	"github.com/openeverest/plugin-metrics/backend/internal/resources"
 	"github.com/openeverest/plugin-metrics/backend/internal/source"
 	"github.com/openeverest/plugin-metrics/backend/internal/source/pmm"
 	"github.com/openeverest/plugin-metrics/backend/internal/source/prometheus"
@@ -141,6 +142,7 @@ func main() {
 		everest:    newEverestClient(everestAPIURL()),
 		dashboards: dashboards,
 		sources:    sources,
+		resources:  resources.New(prometheusURL, kube),
 	}
 	srv := &http.Server{
 		Addr:              ":" + envOrDefault("PORT", "8080"),

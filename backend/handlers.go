@@ -12,6 +12,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/validation"
 
 	"github.com/openeverest/plugin-metrics/backend/internal/dashboard"
+	"github.com/openeverest/plugin-metrics/backend/internal/resources"
 	"github.com/openeverest/plugin-metrics/backend/internal/source"
 )
 
@@ -21,6 +22,14 @@ type server struct {
 	everest    *everestClient
 	dashboards *dashboard.Loader
 	sources    []source.Source
+	// resources charts the instance's pod CPU and memory; nil disables it.
+	resources resourceUsage
+}
+
+// resourceUsage serves the pod CPU and memory panels every dashboard starts with.
+type resourceUsage interface {
+	Panels(ctx context.Context, target source.Target) ([]resources.Panel, error)
+	QueryRange(ctx context.Context, target source.Target, panelID string, window source.Window) ([]source.Series, error)
 }
 
 type instanceRef struct {
@@ -40,6 +49,9 @@ type panelInfo struct {
 	ID    string `json:"id"`
 	Title string `json:"title"`
 	Unit  string `json:"unit"`
+	// Source is set when the panel is read from another source than the
+	// dashboard's, whatever that one's status.
+	Source string `json:"source,omitempty"`
 }
 
 type dashboardResponse struct {
@@ -165,7 +177,7 @@ func (s *server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	response := dashboardResponse{Source: sourceInfo{Type: src.Type(), Status: status}, Panels: []panelInfo{}}
+	response := dashboardResponse{Source: sourceInfo{Type: src.Type(), Status: status}, Panels: s.resourcePanels(r.Context(), target)}
 	_, response.Source.Explorable = src.(source.Explorer)
 	if d, ok := s.dashboards.Catalog().ForProvider(in.Spec.ProviderRef.Name); ok && status.Enabled {
 		for _, panel := range d.Panels {
@@ -175,6 +187,24 @@ func (s *server) handleDashboard(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	writeJSON(w, response)
+}
+
+// resourcePanels lists the pod CPU and memory panels, or none when they can't
+// be shown; their absence never fails the dashboard.
+func (s *server) resourcePanels(ctx context.Context, target source.Target) []panelInfo {
+	panels := []panelInfo{}
+	if s.resources == nil {
+		return panels
+	}
+	found, err := s.resources.Panels(ctx, target)
+	if err != nil {
+		log.Printf("pod resources of %s/%s: %v", target.Namespace, target.Instance, err)
+		return panels
+	}
+	for _, panel := range found {
+		panels = append(panels, panelInfo{ID: panel.ID, Title: panel.Title, Unit: panel.Unit, Source: resources.SourceType})
+	}
+	return panels
 }
 
 // GET /api/panels/{panel}?k8sCluster=&namespace=&instance=&range=
@@ -187,6 +217,10 @@ func (s *server) handlePanel(w http.ResponseWriter, r *http.Request) {
 	target, in, err := s.authorize(r)
 	if err != nil {
 		writeError(w, err)
+		return
+	}
+	if strings.HasPrefix(r.PathValue("panel"), resources.PanelPrefix) {
+		s.handleResourcePanel(w, r, target, window)
 		return
 	}
 	src, status, err := s.activeSource(r.Context(), target, in.Spec.ProviderRef.Name)
@@ -211,6 +245,27 @@ func (s *server) handlePanel(w http.ResponseWriter, r *http.Request) {
 	series, err := src.QueryRange(r.Context(), target, query, window)
 	if err != nil {
 		log.Printf("%s query for panel %q of %s/%s: %v", src.Type(), panel.ID, target.Namespace, target.Instance, err)
+		writeError(w, &statusError{status: http.StatusBadGateway, message: "metrics query failed"})
+		return
+	}
+	writeJSON(w, panelDataResponse{Series: series})
+}
+
+// handleResourcePanel serves a pod CPU or memory panel. It needs no monitoring
+// source for the instance: the cluster's Prometheus scrapes every pod.
+func (s *server) handleResourcePanel(w http.ResponseWriter, r *http.Request, target source.Target, window source.Window) {
+	if s.resources == nil {
+		writeError(w, &statusError{status: http.StatusNotFound, message: "unknown panel"})
+		return
+	}
+	panelID := r.PathValue("panel")
+	series, err := s.resources.QueryRange(r.Context(), target, panelID, window)
+	if errors.Is(err, resources.ErrUnknownPanel) {
+		writeError(w, &statusError{status: http.StatusNotFound, message: "unknown panel"})
+		return
+	}
+	if err != nil {
+		log.Printf("query for panel %q of %s/%s: %v", panelID, target.Namespace, target.Instance, err)
 		writeError(w, &statusError{status: http.StatusBadGateway, message: "metrics query failed"})
 		return
 	}

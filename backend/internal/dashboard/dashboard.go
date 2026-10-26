@@ -5,8 +5,11 @@ package dashboard
 import (
 	_ "embed"
 	"fmt"
+	"strings"
 
 	"sigs.k8s.io/yaml"
+
+	"github.com/openeverest/plugin-metrics/backend/internal/resources"
 )
 
 //go:embed dashboards.yaml
@@ -50,6 +53,8 @@ func Parse(data []byte) (*Catalog, error) {
 			switch {
 			case panel.ID == "" || panel.Title == "":
 				return nil, fmt.Errorf("dashboard %q: every panel needs an id and a title", provider)
+			case strings.HasPrefix(panel.ID, resources.PanelPrefix):
+				return nil, fmt.Errorf("dashboard %q panel %q: ids starting with %q are reserved for the pod resource panels", provider, panel.ID, resources.PanelPrefix)
 			case seen[panel.ID]:
 				return nil, fmt.Errorf("dashboard %q: duplicate panel id %q", provider, panel.ID)
 			case !units[panel.Unit]:

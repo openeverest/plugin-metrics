@@ -20,3 +20,6 @@ export const Y_TICK_COUNT = 4;
 // Overlapping fills stack up, so busy panels get fainter ones.
 export const AREA_OPACITY = { few: 0.28, many: 0.08 };
 export const MAX_SERIES_FOR_STRONG_FILL = 2;
+
+// Limits are drawn dashed and unfilled, so they read as references.
+export const LIMIT_LINE_DASH = '6 4';
