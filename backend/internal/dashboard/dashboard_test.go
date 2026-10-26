@@ -13,7 +13,7 @@ func TestBuiltInScopesEveryQuery(t *testing.T) {
 	require.NoError(t, err)
 
 	for _, provider := range []string{
-		"provider-cassandra", "provider-cloudnative-pg", "mariadb", "milvus", "mssql", "tidb", "valkey",
+		"provider-cassandra", "provider-cloudnative-pg", "mariadb", "milvus", "mssql", "provider-seaweedfs", "tidb", "valkey",
 		"percona-server-mongodb", "provider-percona-postgresql", "percona-xtradb-cluster",
 	} {
 		d, ok := catalog.ForProvider(provider)

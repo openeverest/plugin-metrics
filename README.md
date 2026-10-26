@@ -127,6 +127,7 @@ Built-in dashboards:
 | `mssql` | Batch requests/s, transactions/s, user connections, buffer cache hit ratio, server memory, database size |
 | `provider-cassandra` | Client requests/s, latency p99 and timeouts/s by request type, native clients, live disk space, pending compactions |
 | `provider-cloudnative-pg` | Transactions/s, rows written/s, connections, cache hit ratio, replication lag, database size |
+| `provider-seaweedfs` | S3 requests/s, latency p99 by method, error responses/s by code, S3 traffic, bucket size and objects, volume server disk used, volume slots used |
 | `tidb` | Queries/s by type, query latency p99, failed queries/s, connections, transactions/s, TiKV storage used |
 | `percona-server-mongodb` (PMM) | Operations/s, average latency by operation type, connections, WiredTiger cache used, operations queued on locks, replication lag by replica set |
 | `provider-percona-postgresql` (PMM) | Transactions/s, rows written/s, connections, cache hit ratio, replication lag, database size |
@@ -135,7 +136,7 @@ Built-in dashboards:
 Each dashboard expects the provider's usual exporter (Milvus built-in,
 redis_exporter, mysqld_exporter, sql_exporter with the mssql-operator
 collectors, k8ssandra's modern metrics endpoint, the CloudNativePG exporter,
-TiDB/TiKV/PD built-in, or the PMM client's exporters) and a monitor or
+SeaweedFS built-in, TiDB/TiKV/PD built-in, or the PMM client's exporters) and a monitor or
 MonitoringConfig the plugin can discover (see [Sources](#sources)).
 
 ### Custom dashboards
