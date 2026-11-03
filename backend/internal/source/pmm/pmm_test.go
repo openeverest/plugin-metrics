@@ -3,6 +3,7 @@ package pmm
 import (
 	"context"
 	"encoding/base64"
+	"encoding/pem"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -58,10 +59,53 @@ var credentials = secret("pmm-creds", map[string]string{"apiKey": "glsa_token"})
 func fakeKube(objects ...runtime.Object) *dynamicfake.FakeDynamicClient {
 	return dynamicfake.NewSimpleDynamicClientWithCustomListKinds(runtime.NewScheme(),
 		map[schema.GroupVersionResource]string{
-			monitoringConfigGVR: "MonitoringConfigList",
-			secretGVR:           "SecretList",
+			monitoringConfigGVR:      "MonitoringConfigList",
+			monitoringDestinationGVR: "MonitoringDestinationList",
+			monitoringClassGVR:       "MonitoringClassList",
+			secretGVR:                "SecretList",
 		}, objects...)
 }
+
+// The PMM class is found by the integration fulfilling it, not by its name.
+var (
+	pmmClass        = monitoringClass("percona-pmm", map[string]any{"providerManaged": map[string]any{"integration": "pmm"}})
+	prometheusClass = monitoringClass("prometheus", map[string]any{"extensionManaged": map[string]any{}})
+	tokenSecret     = secret("pmm-token", map[string]string{"token": "glsa_destination"})
+)
+
+func monitoringClass(name string, spec map[string]any) *unstructured.Unstructured {
+	c := &unstructured.Unstructured{Object: map[string]any{"spec": spec}}
+	c.SetAPIVersion("monitoring.openeverest.io/v1alpha1")
+	c.SetKind("MonitoringClass")
+	c.SetName(name)
+	return c
+}
+
+func destination(name, class string, extra map[string]any) *unstructured.Unstructured {
+	spec := map[string]any{
+		"classRef":       map[string]any{"name": class},
+		"authentication": map[string]any{"mode": "ServiceAccountToken", "credentialsSecretRef": map[string]any{"name": "pmm-token"}},
+	}
+	for key, value := range extra {
+		spec[key] = value
+	}
+	d := &unstructured.Unstructured{Object: map[string]any{"spec": spec}}
+	d.SetAPIVersion("monitoring.openeverest.io/v1alpha1")
+	d.SetKind("MonitoringDestination")
+	d.SetNamespace("db")
+	d.SetName(name)
+	return d
+}
+
+func pmmDestination(pmmURL string, extra map[string]any) *unstructured.Unstructured {
+	spec := map[string]any{"parameters": map[string]any{"url": pmmURL}}
+	for key, value := range extra {
+		spec[key] = value
+	}
+	return destination("pmm", "percona-pmm", spec)
+}
+
+var destinationTarget = source.Target{Namespace: "db", Instance: "orders", MonitoringDestinations: []string{"prometheus", "pmm"}}
 
 func scopeOf(t *testing.T, status source.Status) scope {
 	t.Helper()
@@ -125,6 +169,82 @@ func TestStatus(t *testing.T) {
 		_, err := New(fakeKube(pmmConfig("pmm.example.com:443", nil), credentials)).Status(context.Background(), target)
 		assert.ErrorContains(t, err, "invalid PMM URL")
 	})
+}
+
+func TestStatusWithMonitoringDestinations(t *testing.T) {
+	t.Run("monitored when the instance sends to a destination of the PMM class", func(t *testing.T) {
+		kube := fakeKube(destination("prometheus", "prometheus", nil), prometheusClass,
+			pmmDestination("https://pmm.example.com", nil), pmmClass, tokenSecret)
+		s := New(kube)
+		status, err := s.Status(context.Background(), destinationTarget)
+		require.NoError(t, err)
+
+		api := scopeOf(t, status).api
+		assert.Equal(t, "https://pmm.example.com/prometheus", api.BaseURL)
+		assert.Equal(t, "glsa_destination", api.Token)
+		assert.Equal(t, []string{scopeFilter}, api.ExtraFilters)
+		assert.Same(t, s.verifiedHTTP, api.HTTP)
+	})
+
+	t.Run("skips TLS verification only when the destination opts out", func(t *testing.T) {
+		tlsSpec := map[string]any{"tls": map[string]any{"insecureSkipVerify": true}}
+		s := New(fakeKube(pmmDestination("https://pmm.example.com", tlsSpec), pmmClass, tokenSecret))
+		status, err := s.Status(context.Background(), destinationTarget)
+		require.NoError(t, err)
+		assert.Same(t, s.insecureHTTP, scopeOf(t, status).api.HTTP)
+	})
+
+	notEnabled := map[string]*dynamicfake.FakeDynamicClient{
+		"no destination of the PMM class": fakeKube(destination("prometheus", "prometheus", nil), prometheusClass),
+		"destinations missing":            fakeKube(pmmClass, tokenSecret),
+		"class missing":                   fakeKube(pmmDestination("https://pmm.example.com", nil), tokenSecret),
+	}
+	for name, kube := range notEnabled {
+		t.Run("not enabled: "+name, func(t *testing.T) {
+			status, err := New(kube).Status(context.Background(), destinationTarget)
+			require.NoError(t, err)
+			assert.Equal(t, source.Status{Reason: source.ReasonNotEnabled}, status)
+		})
+	}
+
+	anonymous := destination("pmm", "percona-pmm", map[string]any{
+		"parameters":     map[string]any{"url": "https://pmm.example.com"},
+		"authentication": map[string]any{"mode": "Anonymous"},
+	})
+	badCA := map[string]any{"tls": map[string]any{"ca": map[string]any{"secretKeyRef": map[string]any{"name": "pmm-ca", "key": "ca.crt"}}}}
+	unavailable := map[string]*dynamicfake.FakeDynamicClient{
+		"token Secret missing":         fakeKube(pmmDestination("https://pmm.example.com", nil), pmmClass),
+		"Secret without token":         fakeKube(pmmDestination("https://pmm.example.com", nil), pmmClass, secret("pmm-token", map[string]string{"apiKey": "x"})),
+		"unsupported auth mode":        fakeKube(anonymous, pmmClass),
+		"CA bundle without a PEM cert": fakeKube(pmmDestination("https://pmm.example.com", badCA), pmmClass, tokenSecret, secret("pmm-ca", map[string]string{"ca.crt": "not a certificate"})),
+	}
+	for name, kube := range unavailable {
+		t.Run("unavailable: "+name, func(t *testing.T) {
+			status, err := New(kube).Status(context.Background(), destinationTarget)
+			require.NoError(t, err)
+			assert.Equal(t, source.Status{Reason: source.ReasonUnavailable}, status)
+		})
+	}
+}
+
+func TestDestinationCAVerifiesThePMMServer(t *testing.T) {
+	pmm := httptest.NewTLSServer(http.HandlerFunc(emptyMatrix))
+	t.Cleanup(pmm.Close)
+	caPEM := pem.EncodeToMemory(&pem.Block{Type: "CERTIFICATE", Bytes: pmm.Certificate().Raw})
+	tlsSpec := map[string]any{"tls": map[string]any{"ca": map[string]any{"secretKeyRef": map[string]any{"name": "pmm-ca", "key": "ca.crt"}}}}
+	s := New(fakeKube(pmmDestination(pmm.URL, tlsSpec), pmmClass, tokenSecret, secret("pmm-ca", map[string]string{"ca.crt": string(caPEM)})))
+
+	_, err := s.QueryRange(context.Background(), destinationTarget, `x{${selector}}`, window)
+	require.NoError(t, err, "the destination's CA must verify the PMM server")
+
+	first, err := s.Status(context.Background(), destinationTarget)
+	require.NoError(t, err)
+	second, err := s.Status(context.Background(), destinationTarget)
+	require.NoError(t, err)
+	assert.Same(t, scopeOf(t, first).api.HTTP, scopeOf(t, second).api.HTTP, "connections to a PMM server are reused across requests")
+
+	_, err = New(fakeKube(pmmDestination(pmm.URL, nil), pmmClass, tokenSecret)).QueryRange(context.Background(), destinationTarget, `x{${selector}}`, window)
+	assert.Error(t, err, "without the CA the self-signed PMM server is not trusted")
 }
 
 // fakePMM serves PMM's Prometheus API and records the requests it gets.

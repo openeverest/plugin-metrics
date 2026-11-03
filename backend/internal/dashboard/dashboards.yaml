@@ -152,7 +152,8 @@ dashboards:
           prometheus: >-
             max(milvus_rootcoord_collection_num{${selector}})
 
-  # mongodb_exporter of the PMM client in every mongod and mongos pod.
+  # mongodb_exporter: the PMM client's, or the one the provider runs in every
+  # mongod and mongos pod when the instance sends metrics to Prometheus.
   percona-server-mongodb:
     panels:
       - id: operations
@@ -160,6 +161,8 @@ dashboards:
         unit: ops
         queries:
           # The command counter mostly counts internal commands, e.g. heartbeats.
+          prometheus: >-
+            sum by (pod) (rate(mongodb_ss_opcounters{${selector},legacy_op_type!="command"}[${rate}]))
           pmm: >-
             sum by (service_name) (rate(mongodb_ss_opcounters{${selector},legacy_op_type!="command"}[${rate}]))
       - id: latency
@@ -167,23 +170,32 @@ dashboards:
         unit: ms
         queries:
           # Latencies are reported in microseconds.
+          prometheus: >-
+            sum by (op_type) (rate(mongodb_ss_opLatencies_latency{${selector}}[${rate}]))
+            / (sum by (op_type) (rate(mongodb_ss_opLatencies_ops{${selector}}[${rate}])) > 0) / 1000
           pmm: >-
             sum by (op_type) (rate(mongodb_ss_opLatencies_latency{${selector}}[${rate}]))
             / (sum by (op_type) (rate(mongodb_ss_opLatencies_ops{${selector}}[${rate}])) > 0) / 1000
       - id: connections
         title: Connections
         queries:
+          prometheus: >-
+            sum by (pod) (mongodb_ss_connections{${selector},conn_type="current"})
           pmm: >-
             sum by (service_name) (mongodb_ss_connections{${selector},conn_type="current"})
       - id: cache
         title: WiredTiger cache used
         unit: bytes
         queries:
+          prometheus: >-
+            sum by (pod) (mongodb_mongod_wiredtiger_cache_bytes{${selector},type="total"})
           pmm: >-
             sum by (service_name) (mongodb_mongod_wiredtiger_cache_bytes{${selector},type="total"})
       - id: queued-operations
         title: Operations queued on locks
         queries:
+          prometheus: >-
+            sum by (pod) (mongodb_ss_globalLock_currentQueue{${selector},count_type=~"readers|writers"})
           pmm: >-
             sum by (service_name) (mongodb_ss_globalLock_currentQueue{${selector},count_type=~"readers|writers"})
       - id: replication-lag
@@ -191,6 +203,8 @@ dashboards:
         unit: ms
         queries:
           # Every member reports the lag of all members; show the worst per set.
+          prometheus: >-
+            max by (set) (mongodb_mongod_replset_member_replication_lag{${selector},state!="ARBITER"}) * 1000
           pmm: >-
             max by (set) (mongodb_mongod_replset_member_replication_lag{${selector},state!="ARBITER"}) * 1000
 

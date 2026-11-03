@@ -93,6 +93,8 @@ var testInstances = map[string]string{
 	"vectors": `{"spec":{"providerRef":{"name":"milvus"}}}`,
 	"orders": `{"spec":{"providerRef":{"name":"percona"},
 		"components":{"monitoring":{"parameters":{"monitoringConfigName":"pmm-prod"}}}}}`,
+	"events": `{"spec":{"providerRef":{"name":"percona"},
+		"monitoring":{"destinations":[{"name":"prom","destinationRef":{"name":"prometheus"}},{"name":"pmm","destinationRef":{"name":"pmm-prod"}}]}}}`,
 }
 
 // newTestServer fakes the Everest API: only "allowed" may read the instances.
@@ -179,6 +181,14 @@ func TestDashboardPrefersTheSourceItsPanelsUse(t *testing.T) {
 
 	require.Equal(t, http.StatusOK, get(t, srv.URL+"/api/dashboard"+instanceQuery, "allowed", &got))
 	assert.Equal(t, "prometheus", got.Source.Type, "sources the dashboard uses keep the configured order")
+}
+
+func TestSourcesLearnTheInstanceMonitoringDestinations(t *testing.T) {
+	pmm := &fakeSource{typ: "pmm", status: source.Status{Enabled: true}}
+	srv := newTestServer(t, pmm)
+
+	require.Equal(t, http.StatusOK, get(t, srv.URL+"/api/dashboard?namespace=db&instance=events", "allowed", nil))
+	assert.Equal(t, []source.Target{{Namespace: "db", Instance: "events", MonitoringDestinations: []string{"prometheus", "pmm-prod"}}}, pmm.targets)
 }
 
 func TestDashboardExplainsWhyTheExpectedSourceIsOff(t *testing.T) {

@@ -31,10 +31,11 @@ rules:
   - apiGroups: [""]
     resources: ["pods"]
     verbs: ["list"]
-  # PMM: the MonitoringConfig an instance references and the Secret with its
-  # PMM token, read only for instances the caller can read.
+  # PMM: the MonitoringDestination (or legacy MonitoringConfig) an instance
+  # sends metrics to, its MonitoringClass to tell PMM's apart, and the Secrets
+  # with its PMM token and CA, read only for instances the caller can read.
   - apiGroups: ["monitoring.openeverest.io"]
-    resources: ["monitoringconfigs"]
+    resources: ["monitoringdestinations", "monitoringclasses", "monitoringconfigs"]
     verbs: ["get"]
   - apiGroups: [""]
     resources: ["secrets"]
