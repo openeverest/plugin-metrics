@@ -120,9 +120,10 @@ func (s *server) authorize(r *http.Request) (source.Target, *instance, error) {
 		return source.Target{}, nil, err
 	}
 	return source.Target{
-		Namespace:        ref.namespace,
-		Instance:         ref.name,
-		MonitoringConfig: in.Spec.Components.Monitoring.Parameters.MonitoringConfigName,
+		Namespace:              ref.namespace,
+		Instance:               ref.name,
+		MonitoringConfig:       in.Spec.Components.Monitoring.Parameters.MonitoringConfigName,
+		MonitoringDestinations: in.monitoringDestinations(),
 	}, in, nil
 }
 

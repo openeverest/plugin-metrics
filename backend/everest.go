@@ -44,12 +44,30 @@ type instance struct {
 		Components struct {
 			Monitoring struct {
 				Parameters struct {
-					// Providers that ship metrics to PMM take the MonitoringConfig here.
+					// Providers that ship metrics to PMM took the MonitoringConfig
+					// here before the core's MonitoringDestinations.
 					MonitoringConfigName string `json:"monitoringConfigName"`
 				} `json:"parameters"`
 			} `json:"monitoring"`
 		} `json:"components"`
+		Monitoring struct {
+			Destinations []struct {
+				DestinationRef struct {
+					Name string `json:"name"`
+				} `json:"destinationRef"`
+			} `json:"destinations"`
+		} `json:"monitoring"`
 	} `json:"spec"`
+}
+
+// monitoringDestinations returns the names of the MonitoringDestinations the
+// instance sends monitoring data to.
+func (in *instance) monitoringDestinations() []string {
+	var names []string
+	for _, destination := range in.Spec.Monitoring.Destinations {
+		names = append(names, destination.DestinationRef.Name)
+	}
+	return names
 }
 
 type everestClient struct {

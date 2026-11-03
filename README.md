@@ -45,7 +45,7 @@ type Source interface {
 | Source | Monitored when | Scoping |
 |---|---|---|
 | `prometheus` | A PodMonitor or ServiceMonitor for the instance exists (see below) | `${selector}` expands to the instance's namespace and scrape jobs |
-| `pmm` | The instance's `monitoring` component references a PMM `MonitoringConfig` | `${selector}` expands to the instance's `namespace` and `core_openeverest_io_instance` labels, also enforced as `extra_filters[]` |
+| `pmm` | The instance sends metrics to a `MonitoringDestination` of the PMM `MonitoringClass` (`spec.monitoring.destinations`), or references a legacy PMM `MonitoringConfig` | `${selector}` expands to the instance's `namespace` and `core_openeverest_io_instance` labels, also enforced as `extra_filters[]` |
 
 The Prometheus source finds an instance's monitors in its namespace by either
 label set:
@@ -61,17 +61,27 @@ A PodMonitor's scrape job is `<namespace>/<name>`. A ServiceMonitor's jobs are
 the Services it selects (or their `jobLabel` value), so the plugin also lists
 Services.
 
-The PMM source reads the instance's `MonitoringConfig`
-(`spec.components.monitoring.parameters.monitoringConfigName`) and the Secret
-it references, and queries that PMM server's Prometheus API
-(`<url>/prometheus/api/v1`) with the Secret's `apiKey` as a bearer token,
-honoring `verifyTLS`. Providers label every series an instance pushes to PMM
+The PMM source takes the first of the instance's `spec.monitoring.destinations`
+whose `MonitoringDestination` belongs to a `MonitoringClass` the providers' PMM
+integration fulfils (`spec.providerManaged.integration: pmm`, whatever the
+class is named). It queries that PMM server's Prometheus API
+(`<spec.parameters.url>/prometheus/api/v1`) with the `token` key of the
+destination's `ServiceAccountToken` credentials Secret as a bearer token, and
+verifies the server as `spec.tls` says (`ca` or `insecureSkipVerify`).
+Instances that still reference a legacy `MonitoringConfig`
+(`spec.components.monitoring.parameters.monitoringConfigName`) use its URL,
+its Secret's `apiKey` and `verifyTLS` instead. Providers label every series an
+instance pushes to PMM
 with `namespace` and `core_openeverest_io_instance` (Percona providers do so
 through `pmm-admin --custom-labels`), which keeps queries to one instance on a
 PMM server that monitors many. Series are named after the database pod
 (PMM's `service_name`, `<namespace>-<pod>`, without the namespace). The labels
 do not identify the Kubernetes cluster yet, so a PMM server shared by several
 clusters should not hold instances with the same namespace and name.
+
+When several sources monitor an instance and its dashboard has queries for
+more than one of them, the first in the configured order wins: Prometheus,
+then PMM.
 
 Adding another system means adding a `Source` and its queries to the panels
 that support it. The frontend renders whatever series it gets back and
@@ -130,7 +140,7 @@ Built-in dashboards:
 | `provider-kserve` | Requests/s by finish reason, request latency p99, input/output tokens/s, time to first token p99, inter-token latency p99, requests running and waiting, KV cache used, prefix cache hit ratio (predictors: requests/s and latency p99 only) |
 | `provider-seaweedfs` | S3 requests/s, latency p99 by method, error responses/s by code, S3 traffic, bucket size and objects, volume server disk used, volume slots used |
 | `tidb` | Queries/s by type, query latency p99, failed queries/s, connections, transactions/s, TiKV storage used |
-| `percona-server-mongodb` (PMM) | Operations/s, average latency by operation type, connections, WiredTiger cache used, operations queued on locks, replication lag by replica set |
+| `percona-server-mongodb` (PMM or Prometheus) | Operations/s, average latency by operation type, connections, WiredTiger cache used, operations queued on locks, replication lag by replica set |
 | `provider-percona-postgresql` (PMM) | Transactions/s, rows written/s, connections, cache hit ratio, replication lag, database size |
 | `percona-xtradb-cluster` (PMM or Prometheus) | Queries/s, connections, Galera flow control paused, Galera receive queue, InnoDB buffer pool hit ratio, network traffic |
 
@@ -139,7 +149,7 @@ redis_exporter, mysqld_exporter, sql_exporter with the mssql-operator
 collectors, k8ssandra's modern metrics endpoint, the CloudNativePG exporter,
 vLLM or the KServe Python model server built-in,
 SeaweedFS built-in, TiDB/TiKV/PD built-in, or the PMM client's exporters) and a monitor or
-MonitoringConfig the plugin can discover (see [Sources](#sources)).
+PMM destination the plugin can discover (see [Sources](#sources)).
 
 ### Custom dashboards
 
@@ -197,8 +207,9 @@ or point `dashboards.existingConfigMap` at a ConfigMap you manage yourself
   plugin lists pods in every namespace to scope the queries and read limits.
 - For PMM: PMM 3 and a provider that labels the series it pushes to PMM with
   the instance (Percona providers for MongoDB, PostgreSQL and XtraDB Cluster),
-  with monitoring enabled on the instance through a `MonitoringConfig`. The
-  plugin reuses that MonitoringConfig's token, so its ServiceAccount can read
+  with the instance sending metrics to a PMM `MonitoringDestination` (or a
+  legacy `MonitoringConfig`). The plugin reuses that destination's token, so
+  its ServiceAccount can read MonitoringDestinations, MonitoringClasses,
   MonitoringConfigs and Secrets in every namespace.
 
 ## Installation

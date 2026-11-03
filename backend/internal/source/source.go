@@ -23,6 +23,9 @@ type Target struct {
 	// MonitoringConfig is the MonitoringConfig (in Namespace) the instance's
 	// monitoring component references, or empty when it references none.
 	MonitoringConfig string
+	// MonitoringDestinations are the MonitoringDestinations (in Namespace)
+	// the instance sends monitoring data to, from spec.monitoring.destinations.
+	MonitoringDestinations []string
 	// Scope is what the source's Status resolved for the target, e.g. its
 	// Prometheus scrape jobs. Callers copy it from Status so queries in the
 	// same request skip that lookup; when nil, the source resolves it again.
