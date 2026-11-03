@@ -86,6 +86,63 @@ dashboards:
           prometheus: >-
             max by (datname) (cnpg_pg_database_size_bytes{${selector}})
 
+  # KServe. llm Instances serve vLLM's built-in metrics (vllm:*, port 8000).
+  # predictor Instances on the KServe Python model server (sklearn, xgboost,
+  # lightgbm, ...) export only request_*_seconds histograms, so the requests and
+  # latency panels fall back to them with "or"; the other panels are LLM-only.
+  provider-kserve:
+    panels:
+      - id: requests
+        title: Requests per second
+        unit: ops
+        queries:
+          prometheus: >-
+            sum by (finished_reason) (rate(vllm:request_success_total{${selector}}[${rate}]))
+            or sum(rate(request_predict_seconds_count{${selector}}[${rate}]))
+      - id: latency
+        title: Request latency (p99)
+        unit: ms
+        queries:
+          prometheus: >-
+            histogram_quantile(0.99, sum by (le) (rate(vllm:e2e_request_latency_seconds_bucket{${selector}}[${rate}]))) * 1000
+            or histogram_quantile(0.99, sum by (le) (rate(request_predict_seconds_bucket{${selector}}[${rate}]))) * 1000
+      - id: tokens
+        title: Tokens per second
+        unit: ops
+        queries:
+          prometheus: >-
+            label_replace(sum(rate(vllm:prompt_tokens_total{${selector}}[${rate}])), "type", "input", "", "")
+            or label_replace(sum(rate(vllm:generation_tokens_total{${selector}}[${rate}])), "type", "output", "", "")
+      - id: time-to-first-token
+        title: Time to first token (p99)
+        unit: ms
+        queries:
+          prometheus: >-
+            histogram_quantile(0.99, sum by (le) (rate(vllm:time_to_first_token_seconds_bucket{${selector}}[${rate}]))) * 1000
+      - id: inter-token-latency
+        title: Inter-token latency (p99)
+        unit: ms
+        queries:
+          prometheus: >-
+            histogram_quantile(0.99, sum by (le) (rate(vllm:inter_token_latency_seconds_bucket{${selector}}[${rate}]))) * 1000
+      - id: requests-in-flight
+        title: Requests running and waiting
+        queries:
+          prometheus: >-
+            label_replace(sum(vllm:num_requests_running{${selector}}), "state", "running", "", "")
+            or label_replace(sum(vllm:num_requests_waiting{${selector}}), "state", "waiting", "", "")
+      - id: kv-cache
+        title: KV cache used (%)
+        queries:
+          prometheus: >-
+            100 * max by (pod) (vllm:kv_cache_usage_perc{${selector}})
+      - id: prefix-cache-hit-ratio
+        title: Prefix cache hit ratio (%)
+        queries:
+          prometheus: >-
+            100 * sum(rate(vllm:prefix_cache_hits_total{${selector}}[${rate}]))
+            / sum(rate(vllm:prefix_cache_queries_total{${selector}}[${rate}]))
+
   # mysqld_exporter. mariadb-operator runs one exporter per cluster that scrapes
   # every server, so "pod" is the exporter; take the server pod from "instance".
   mariadb:
