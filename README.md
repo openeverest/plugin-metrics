@@ -135,6 +135,7 @@ Built-in dashboards:
 | `valkey` | Commands/s, keyspace hit ratio, connected clients, memory, keys and network traffic by shard |
 | `mariadb` | Queries/s, slow queries/s, connections, running threads, InnoDB buffer pool hit ratio, network traffic |
 | `mssql` | Batch requests/s, transactions/s, user connections, buffer cache hit ratio, server memory, database size |
+| `neo4j` (Enterprise) | Committed and rolled back transactions/s, active read/write transactions, query latency p99 by database, Bolt connections, Bolt messages received/s, page cache hit ratio, JVM heap used, store size by database |
 | `provider-cassandra` | Client requests/s, latency p99 and timeouts/s by request type, native clients, live disk space, pending compactions |
 | `provider-cloudnative-pg` | Transactions/s, rows written/s, connections, cache hit ratio, replication lag, database size |
 | `provider-kserve` | Requests/s by finish reason, request latency p99, input/output tokens/s, time to first token p99, inter-token latency p99, requests running and waiting, KV cache used, prefix cache hit ratio (predictors: requests/s and latency p99 only) |
@@ -148,7 +149,7 @@ Each dashboard expects the provider's usual exporter (Milvus built-in,
 redis_exporter, mysqld_exporter, sql_exporter with the mssql-operator
 collectors, k8ssandra's modern metrics endpoint, the CloudNativePG exporter,
 vLLM or the KServe Python model server built-in,
-SeaweedFS built-in, TiDB/TiKV/PD built-in, or the PMM client's exporters) and a monitor or
+SeaweedFS built-in, Neo4j Enterprise built-in, TiDB/TiKV/PD built-in, or the PMM client's exporters) and a monitor or
 PMM destination the plugin can discover (see [Sources](#sources)).
 
 ### Custom dashboards
