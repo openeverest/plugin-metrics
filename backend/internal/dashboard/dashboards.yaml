@@ -304,6 +304,74 @@ dashboards:
           prometheus: >-
             max by (database) (sum by (database, pod) (mssql_database_size_bytes{${selector}}))
 
+  # Neo4j Enterprise built-in Prometheus endpoint (port 2004), default metrics
+  # filter. Per-database metrics carry the database in the metric name
+  # (neo4j_database_<db>_...), so queries match on __name__, skip the internal
+  # system database and lift the name into a label. rate() drops __name__,
+  # which would leave series of different databases identical, so counters are
+  # rated over a subquery of the relabelled series.
+  neo4j:
+    panels:
+      - id: transactions
+        title: Committed transactions per second
+        unit: ops
+        queries:
+          prometheus: >-
+            sum by (pod) (rate(label_replace({__name__=~"neo4j_database_.+_transaction_committed_total",__name__!~"neo4j_database_system_.+",${selector}},
+            "database", "$1", "__name__", "neo4j_database_(.+)_transaction_committed_total")[${rate}:]))
+      - id: rollbacks
+        title: Rolled back transactions per second
+        unit: ops
+        queries:
+          prometheus: >-
+            sum by (pod) (rate(label_replace({__name__=~"neo4j_database_.+_transaction_rollbacks_total",__name__!~"neo4j_database_system_.+",${selector}},
+            "database", "$1", "__name__", "neo4j_database_(.+)_transaction_rollbacks_total")[${rate}:]))
+      - id: active-transactions
+        title: Active transactions
+        queries:
+          prometheus: >-
+            sum by (type) (label_replace({__name__=~"neo4j_database_.+_transaction_active_(read|write)",__name__!~"neo4j_database_system_.+",${selector}},
+            "type", "$1", "__name__", ".+_transaction_active_(read|write)"))
+      - id: query-latency
+        title: Query latency (p99)
+        unit: ms
+        queries:
+          # A summary over Neo4j's recent queries, already in milliseconds.
+          prometheus: >-
+            max by (database) (label_replace({__name__=~"neo4j_database_.+_db_query_execution_latency_millis",__name__!~"neo4j_database_system_.+",quantile="0.99",${selector}},
+            "database", "$1", "__name__", "neo4j_database_(.+)_db_query_execution_latency_millis"))
+      - id: bolt-connections
+        title: Bolt connections
+        queries:
+          prometheus: >-
+            label_replace(sum(neo4j_dbms_bolt_connections_running{${selector}}), "state", "running", "", "")
+            or label_replace(sum(neo4j_dbms_bolt_connections_idle{${selector}}), "state", "idle", "", "")
+      - id: bolt-messages
+        title: Bolt messages received per second
+        unit: ops
+        queries:
+          prometheus: >-
+            sum by (pod) (rate(neo4j_dbms_bolt_messages_received_total{${selector}}[${rate}]))
+      - id: page-cache-hit-ratio
+        title: Page cache hit ratio (%)
+        queries:
+          prometheus: >-
+            100 * max by (pod) (neo4j_dbms_page_cache_hit_ratio{${selector}})
+      - id: heap
+        title: JVM heap used
+        unit: bytes
+        queries:
+          prometheus: >-
+            sum by (pod) (neo4j_dbms_vm_heap_used{${selector}})
+      - id: store-size
+        title: Database store size
+        unit: bytes
+        queries:
+          # Every member holding a copy reports the same database; show each once.
+          prometheus: >-
+            max by (database) (label_replace({__name__=~"neo4j_database_.+_store_size_database",__name__!~"neo4j_database_system_.+",${selector}},
+            "database", "$1", "__name__", "neo4j_database_(.+)_store_size_database"))
+
   # mysqld_exporter: the PMM client's, or the provider's sidecar when the
   # instance enables Prometheus monitoring instead.
   percona-xtradb-cluster:

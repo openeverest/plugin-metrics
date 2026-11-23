@@ -31,6 +31,7 @@ plugin:
         - valkey
         - mariadb
         - mssql
+        - neo4j
         - provider-cassandra
         - provider-cloudnative-pg
         - provider-kserve
